@@ -34,7 +34,7 @@ class Player:
 class GameManager:
     """Gère le déroulement et la logique du jeu."""
     
-    DEBATE_TIME_LIMIT = 20 
+    DEBATE_TIME_LIMIT = 120 
     
     def __init__(self, human_player_name="Humain_Lucie"):
         
