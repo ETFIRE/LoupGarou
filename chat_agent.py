@@ -172,15 +172,23 @@ class ChatAgent(Player):
         return voted_name
 
     def generate_debate_message(self, current_game_status):
-        """Génère un message de débat public basé sur son rôle et sa personnalité."""
+        """
+        Génère un message de débat public, forçant l'IA à utiliser son historique.
+        """
+        
         alive_names = [p['name'] for p in current_game_status if p['is_alive'] and p['name'] != self.name]
         
+        # --- PROMPT RENFORCÉ ---
         prompt = (
-            f"Nous sommes en phase de débat. Tu es un(e) {self.role.name} ({self.role.camp.value}). "
-            f"Tu as entendu les messages suivants (dans ton historique). "
-            f"GÉNÈRE UNE PHRASE DE DÉBAT : Accuse quelqu'un, défends-toi, ou pose une question stratégique. "
-            f"Si tu es Loup-Garou, MENS et piège quelqu'un d'autre. Si tu es Villageois, utilise les informations que tu as. "
+            f"Nous sommes en phase de débat. Ton rôle est {self.role.name} ({self.role.camp.value}). "
+            f"Ton historique contient TOUS les messages publics précédents. "
+            f"ANALYSE LE TON DES DERNIÈRES INTERVENTIONS, y compris celles du joueur humain. "
+            f"Réagis en ACCUSANT quelqu'un de manière stratégique (ou en te défendant), en te basant sur le dernier message ou sur les contradictions que tu as notées. "
+            f"Joueurs vivants : {', '.join(alive_names)}. "
             f"RÉPONDS AVEC UN MESSAGE COURT ET DIRECT (pas de 'Je pense que...')."
         )
+        
+        # L'appel à ask_llm envoie tout l'historique (self.history)
         debate_message = self.ask_llm(user_interaction=prompt)
+        
         return debate_message
