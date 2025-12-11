@@ -1,6 +1,5 @@
 # loup_garou_arcade.py
 
-# -*- coding: utf-8 -*-
 import arcade
 import random
 import time
@@ -11,7 +10,7 @@ import math
 from dotenv import load_dotenv
 load_dotenv() 
 
-# Importation de vos classes de jeu
+
 from game_core import GameManager, Player 
 from enums_and_roles import Camp, NightAction 
 
@@ -170,13 +169,13 @@ class LoupGarouGame(arcade.Window):
         )
         
         # Initialisation des Sprites
-        self._setup_sprites()
+        self.setup_sprites()
         
         # Commencer le jeu
         self.start_game_loop()
 
     
-    def _setup_sprites(self):
+    def setup_sprites(self):
         """Crée les représentations visuelles des joueurs."""
         num_players = len(self.game_manager.players)
         center_x = SCREEN_WIDTH / 2
@@ -256,9 +255,9 @@ class LoupGarouGame(arcade.Window):
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
 
         self.player_sprites.draw()
-        self._draw_log()
-        self._draw_status()
-        self._draw_typing_message()
+        self.draw_log()
+        self.draw_status()
+        self.draw_typing_message()
         
         # Dessiner les boutons de vote
         for btn in self.action_buttons:
@@ -274,7 +273,7 @@ class LoupGarouGame(arcade.Window):
         
         # 1. EXÉCUTION DE LA LOGIQUE DE NUIT
         if self.current_state == GameState.NIGHT_IA_ACTION:
-             night_message = self.game_manager._night_phase()
+             night_message = self.game_manager.night_phase()
              self.log_messages.append(night_message)
              
              self.current_state = GameState.DEBATE
@@ -284,11 +283,11 @@ class LoupGarouGame(arcade.Window):
 
         # 2. GESTION DU DÉBAT
         elif self.current_state == GameState.DEBATE:
-            self._update_debate(delta_time)
+            self.update_debate(delta_time)
         
         # 3. GESTION DU VOTE (Déclenché par le clic humain OU si l'humain est mort)
         elif self.current_state == GameState.VOTING:
-            lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players()) 
+            lynch_message = self.game_manager.lynch_result(self.game_manager.get_alive_players()) 
             self.log_messages.append(lynch_message)
             self.current_state = GameState.RESULT
         
@@ -303,7 +302,7 @@ class LoupGarouGame(arcade.Window):
                  self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.")
 
     
-    def _update_debate(self, delta_time):
+    def update_debate(self, delta_time):
         """Gère le temps et la parole pendant la phase de débat."""
         
         self.debate_timer -= delta_time
@@ -332,7 +331,7 @@ class LoupGarouGame(arcade.Window):
             self.messages_generated = 0 # Reset du compteur
             
             if self.human_player.is_alive:
-                self._enter_human_voting_state() 
+                self.enter_human_voting_state() 
                 self.current_state = GameState.HUMAN_ACTION
             else:
                 self.current_state = GameState.VOTING
@@ -345,7 +344,7 @@ class LoupGarouGame(arcade.Window):
             if alive_ais:
                 speaker = random.choice(alive_ais)
                 
-                debate_message = speaker.generate_debate_message(self.game_manager._get_public_status())
+                debate_message = speaker.generate_debate_message(self.game_manager.get_public_status())
                 
                 self.current_speaker = speaker
                 self.current_message_full = debate_message
@@ -357,7 +356,7 @@ class LoupGarouGame(arcade.Window):
                     
                 self.messages_generated += 1 
 
-    def _enter_human_voting_state(self):
+    def enter_human_voting_state(self):
         """Prépare les boutons pour le vote de lynchage du joueur humain."""
         alive = self.game_manager.get_alive_players()
         self.action_buttons = []
@@ -381,7 +380,7 @@ class LoupGarouGame(arcade.Window):
         self.log_messages.append(f"-> {self.human_player.name}, choisis ta victime (CLIC) :")
 
 
-    def _draw_log(self):
+    def draw_log(self):
         # --- LOGIQUE DE DESSIN DU LOG AMÉLIORÉE ---
         LOG_X_START = 10
         LOG_Y_START = 10
@@ -420,7 +419,7 @@ class LoupGarouGame(arcade.Window):
             )
             y_pos -= line_spacing 
             
-    def _draw_status(self):
+    def draw_status(self):
         arcade.draw_text(
             f"Loups Vivants : {self.game_manager.wolves_alive}",
             SCREEN_WIDTH - 200, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16
@@ -431,7 +430,7 @@ class LoupGarouGame(arcade.Window):
                 SCREEN_WIDTH - 200, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
             )
 
-    def _draw_typing_message(self):
+    def draw_typing_message(self):
         if self.current_speaker and self.current_message_display != self.current_message_full:
             arcade.draw_text(
                 f"💬 {self.current_speaker.name} tape...",
