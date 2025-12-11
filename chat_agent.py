@@ -4,7 +4,6 @@
 from groq import Groq
 from dotenv import load_dotenv
 import os
-import base64
 import json
 import random 
 from enum import Enum 
@@ -12,7 +11,8 @@ from enum import Enum
 # --- Importations des définitions de jeu ---
 from enums_and_roles import Camp, NightAction, Role 
 
-# --- Dépendance de Player (mockée pour éviter la boucle d'importation) ---
+# --- Dépendance de Player (Mockée pour éviter la boucle d'importation) ---
+# NOTE: Cette classe doit correspondre à la structure de Player/ChatAgent dans game_core.py
 class Player:
     def __init__(self, name, is_human=False):
         self.name = name
@@ -21,7 +21,8 @@ class Player:
         self.is_alive = True
         self.has_kill_potion = False 
         self.has_life_potion = False 
-        self.wolf_teammates = [] # Ajout pour l'accès aux coéquipiers
+        self.wolf_teammates = [] 
+        self.has_hunter_shot = True
     def assign_role(self, role):
         self.role = role
 
@@ -29,10 +30,9 @@ class Player:
 
 class ChatAgent(Player):
     """
-    Représente un joueur IA. Gère l'historique isolé, la personnalité et l'API LLM.
+    Représente un joueur IA. Gère l'historique isolé, la personnalité et l'API LLM (via Groq).
     """
     
-    VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct" 
     # CONSERVATION DU MODÈLE DEMANDÉ
     large_language_model = "llama-3.3-70b-versatile" 
     
@@ -40,6 +40,7 @@ class ChatAgent(Player):
         
         super().__init__(name, is_human)
         
+        # Vérification GROQ KEY
         if "GROQ_KEY" not in os.environ:
              raise EnvironmentError("GROQ_KEY non trouvée. Assurez-vous d'avoir un fichier .env.")
              
@@ -72,7 +73,6 @@ class ChatAgent(Player):
         except FileNotFoundError:
              return "You are a helpful and friendly assistant."
              
-    # Les méthodes format_streamlit_image_to_base64, _create_vision_message sont omises/inutilisées
 
     # --- GESTION DE L'HISTORIQUE ---
 
@@ -122,12 +122,6 @@ class ChatAgent(Player):
             return f"[ERREUR LLM : Échec de la communication. {e}]"
 
 
-    def ask_vision_model(self, user_interaction, image_b64):
-         """Mode Vision (non implémenté pour ce jeu)"""
-         return "Vision non supportée par cette IA." 
-
-    # --- INTERFACE DE JEU (LOGIQUE DE DÉCISION) ---
-
     def receive_public_message(self, sender_name, message):
          """Enregistre un message public du débat dans l'historique de l'IA."""
          public_interaction = f"Message public de {sender_name}: {message}"
@@ -150,8 +144,9 @@ class ChatAgent(Player):
              return response.strip()
          except Exception as e:
              print(f"Erreur GROQ API (Décision) : {e}")
-             return random.choice([p.name for p in self.get_alive_players() if p.name != self.name])
-
+             # Retourne un nom aléatoire en cas d'échec pour débloquer le jeu
+             # NOTE : Nécessite l'accès à la liste des joueurs vivants, ce qui n'est pas possible ici.
+             return "Maître Simon" # Nom par défaut si l'API échoue
 
     def decide_night_action(self, alive_players):
          """Demande au LLM de choisir une cible pour son action de nuit."""
@@ -202,17 +197,30 @@ class ChatAgent(Player):
 
     def generate_debate_message(self, current_game_status):
          """
-         Génère un message de débat public, forçant l'IA à être active et accusatrice.
+         Génère un message de débat public, forçant l'IA à être active, accusatrice ou à révéler sa preuve.
          """
          
          alive_names = [p['name'] for p in current_game_status if p['is_alive'] and p['name'] != self.name]
          
-         # Déterminer si l'IA a été accusée récemment (simplification)
          is_accused = any(self.name in msg['content'] for msg in self.history[-5:] if msg['role'] == 'user')
          
-         # --- PROMPT SYSTÈME D'AGRESSION ---
+         # --- 1. LOGIQUE DE LA VOYANTE FORCÉE À RÉVÉLER UN LOUP (Contrer la domination) ---
+         is_voyante = (self.role.name == "Voyante")
+         found_wolf_info = next((
+             msg['content'] for msg in self.history 
+             if msg['role'] == 'system' and "Loup" in msg['content'] and "vu" in msg['content']
+         ), None)
          
-         if is_accused:
+         if is_voyante and found_wolf_info:
+             # Révélation stratégique d'une information vérifiée
+             instruction = (
+                 f"Tu es la Voyante. Tu as une preuve DIRECTE: '{found_wolf_info}'. "
+                 "RÉVÈLE IMMÉDIATEMENT le joueur que tu as vu comme étant LOUP. "
+                 "Utilise ta personnalité de {self.role.name} pour convaincre le village de ta vérité, mais sois prudent(e). "
+             )
+         
+         # --- 2. LOGIQUE D'AGRESSION GÉNÉRALE ---
+         elif is_accused:
              # Réponse AGRESSIVE : Défense/Contre-attaque
              instruction = (
                  f"On t'accuse ! Utilise ta personnalité de {self.role.name} pour TE DÉFENDRE VIRULEMMENT et CONTRE-ATTAQUER. "
@@ -229,7 +237,7 @@ class ChatAgent(Player):
          general_instruction = (
              f"Ton rôle est {self.role.name} ({self.role.camp.value}). Consulte ton historique (TON SEUL GUIDE). "
              f"RÉPONDS AVEC UN MESSAGE TRES COURT, PERCUTANT ET DIRECT (MAXIMUM 20 MOTS). "
-             "Ne réponds qu'avec le message lui-même."
+             "Si tu es Loup-Garou, rends ton mensonge subtil et complexe, quitte à faire une FAUSSE ACCUSATION très forte. Ne réponds qu'avec le message lui-même."
          )
  
          prompt = instruction + general_instruction

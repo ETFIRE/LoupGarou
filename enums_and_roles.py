@@ -1,43 +1,35 @@
 # enums_and_roles.py
 
-# -*- coding: utf-8 -*-
 from enum import Enum
 
 class Camp(Enum):
-    """Définit le camp du joueur pour la condition de victoire."""
-    VILLAGEOIS = 'Villageois'
-    LOUP = 'Loup-Garou'
-    SOLO = 'Solo' 
+    LOUP = "Loup-Garou"
+    VILLAGEOIS = "Villageois"
 
 class NightAction(Enum):
-    """Définit l'action de nuit associée à un rôle."""
-    KILL = 'Tuer'
-    INVESTIGATE = 'Enquêter'
-    POTION = 'Potions'
-    VOTE_LEADER = 'Vote Leader'
-    NONE = 'Aucune'
+    NONE = "Aucune"
+    INVESTIGATE = "Enquête"  # Voyante
+    KILL = "Meurtre"        # Loup-Garou
+    POTION = "Potion"       # Sorcière
+    WATCH = "Observation"   # NOUVEAU: Petite Fille
 
 class Role:
-    """Représente un rôle avec ses propriétés de jeu."""
     def __init__(self, name, camp, night_action=NightAction.NONE):
         self.name = name
         self.camp = camp
         self.night_action = night_action
 
-    def __repr__(self):
-        return f"{self.name} ({self.camp.value})"
-
-# Définition de l'ensemble des rôles (ROLES_POOL pour 10 joueurs)
+# Définition des Rôles utilisés dans la partie (10 joueurs)
 ROLES_POOL = {
-    "Loup Garou A": Role("Loup Garou", Camp.LOUP, NightAction.KILL),
-    "Loup Garou B": Role("Loup Garou", Camp.LOUP, NightAction.KILL),
-    "Loup Garou C": Role("Loup Garou", Camp.LOUP, NightAction.KILL),
+    "LoupGarou1": Role("Loup-Garou", Camp.LOUP, NightAction.KILL),
+    "LoupGarou2": Role("Loup-Garou", Camp.LOUP, NightAction.KILL),
+    "LoupGarou3": Role("Loup-Garou", Camp.LOUP, NightAction.KILL),
     
     "Voyante": Role("Voyante", Camp.VILLAGEOIS, NightAction.INVESTIGATE),
-    "Sorcière": Role("Sorcière", Camp.VILLAGEOIS, NightAction.POTION),
+    "Sorciere": Role("Sorcière", Camp.VILLAGEOIS, NightAction.POTION),
     "Chasseur": Role("Chasseur", Camp.VILLAGEOIS),
-    "Petite Fille": Role("Petite Fille", Camp.VILLAGEOIS, NightAction.NONE),
-    "Chef du Village": Role("Chef du Village", Camp.VILLAGEOIS, NightAction.VOTE_LEADER),
-    "Villageois Simple 1": Role("Simple Villageois", Camp.VILLAGEOIS),
-    "Villageois Simple 2": Role("Simple Villageois", Camp.VILLAGEOIS),
+    "PetiteFille": Role("Petite Fille", Camp.VILLAGEOIS, NightAction.WATCH), # <-- NOUVEAU
+    "Villageois1": Role("Villageois", Camp.VILLAGEOIS),
+    "Villageois2": Role("Villageois", Camp.VILLAGEOIS),
+    "Villageois3": Role("Villageois", Camp.VILLAGEOIS),
 }

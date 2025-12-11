@@ -6,8 +6,7 @@ import random
 import time
 from enum import Enum 
 import math
-
-# IMPORTATION ET CHARGEMENT FORCÉ DE L'ENVIRONNEMENT
+import os
 from dotenv import load_dotenv
 load_dotenv() 
 
@@ -27,12 +26,26 @@ class MenuButton:
         self.action = action 
 
     def draw(self):
+        color_map = {
+            "ENQUÊTER": arcade.color.PURPLE,
+            "TUER": arcade.color.RED_DEVIL,
+            "SAUVER": arcade.color.YELLOW_GREEN,
+            "PASSER": arcade.color.YELLOW_ORANGE,
+            "Voter": arcade.color.DARK_RED,
+            "COMMENCER": arcade.color.DARK_GREEN,
+            "DEFAULT": arcade.color.DARK_BLUE
+        }
+        
+        # Déterminer la couleur basée sur l'action principale
+        base_action = self.text.split()[0]
+        color = color_map.get(base_action, color_map.get(self.text.split('[')[0].strip(), color_map["DEFAULT"]))
+
         arcade.draw_lbwh_rectangle_filled(
             self.center_x - self.width / 2, 
             self.center_y - self.height / 2, 
             self.width, 
             self.height, 
-            arcade.color.RED_DEVIL if self.text.startswith("Voter") else arcade.color.DARK_GREEN
+            color
         )
         arcade.draw_text(self.text, self.center_x, self.center_y,
                          arcade.color.WHITE, 12, anchor_x="center", anchor_y="center")
@@ -120,12 +133,13 @@ SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
 
 class GameState(Enum):
     SETUP = 1 
-    NIGHT_IA_ACTION = 2 
-    HUMAN_ACTION = 3    
+    NIGHT_HUMAN_ACTION = 2 
+    NIGHT_IA_ACTION = 3    
     DEBATE = 4
-    VOTING = 5
-    RESULT = 6
-    GAME_OVER = 7
+    HUMAN_ACTION = 5    # <-- ÉTAT RÉTABLI POUR LE VOTE DE JOUR HUMAIN
+    VOTING = 6
+    RESULT = 7
+    GAME_OVER = 8
 
 
 class LoupGarouGame(arcade.Window):
@@ -146,12 +160,12 @@ class LoupGarouGame(arcade.Window):
         self.action_buttons = []
         
         # 3. Gestion du Temps et Vitesse d'écriture (Débat)
-        self.debate_timer = 120 
+        self.debate_timer = 60 
         self.current_speaker = None
         self.current_message_full = ""
         self.current_message_display = ""
         self.typing_speed_counter = 0 
-        self.typing_delay = 2 # CHANGÉ : Délai plus lent pour la frappe de l'IA
+        self.typing_delay = 5           
         self.messages_generated = 0           
         self.max_messages_per_debate = 10     
         self.message_is_complete = False 
@@ -169,10 +183,10 @@ class LoupGarouGame(arcade.Window):
         
         # Assignation du bouton Envoyer à ChatInput
         self.chat_input.send_button = MenuButton(
-            input_x + input_width + 50, # x
-            input_y + INPUT_HEIGHT / 2, # y
-            90, # width
-            INPUT_HEIGHT, # height
+            input_x + input_width + 50, 
+            input_y + INPUT_HEIGHT / 2, 
+            90, 
+            INPUT_HEIGHT, 
             "Envoyer", 
             None
         )
@@ -232,12 +246,18 @@ class LoupGarouGame(arcade.Window):
         # Gérer le clic du bouton de démarrage
         if self.current_state == GameState.SETUP:
             if self.start_button.check_click(x, y):
-                self.current_state = GameState.NIGHT_IA_ACTION
-                self.log_messages.append(f"\nJOUR 1 : La NUIT tombe.")
+                # Vérifier si l'humain a un rôle actif de nuit
+                if self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
+                    self.current_state = GameState.NIGHT_HUMAN_ACTION
+                    self.log_messages.append(f"\nJOUR 1 : La NUIT tombe. Exécute ton action de {self.human_player.role.name}.")
+                else:
+                    # Rôles passifs de nuit (Petite Fille, Villageois, Chasseur)
+                    self.current_state = GameState.NIGHT_IA_ACTION
+                    self.log_messages.append(f"\nJOUR 1 : La NUIT tombe.")
                 return 
                 
-        # Le reste de la logique de jeu
-        if self.current_state == GameState.HUMAN_ACTION:
+        # Gérer le vote de lynchage (Jour)
+        elif self.current_state == GameState.HUMAN_ACTION:
             for btn in self.action_buttons:
                 if btn.check_click(x, y):
                     voted_player_name = btn.action
@@ -247,8 +267,13 @@ class LoupGarouGame(arcade.Window):
                     self.current_state = GameState.VOTING
                     return
                     
+        # Gérer la saisie de chat
         elif self.current_state == GameState.DEBATE and self.human_player.is_alive:
             self.chat_input.check_click(x, y)
+        
+        # Gérer l'action de Nuit Humaine
+        elif self.current_state == GameState.NIGHT_HUMAN_ACTION:
+             self._handle_human_night_action_click(x, y)
 
 
     def on_key_press(self, symbol, modifiers):
@@ -306,14 +331,18 @@ class LoupGarouGame(arcade.Window):
         self.player_sprites.draw()
         
         # AFFICHAGE DE LA LOGIQUE 
-        self.draw_log() 
+        self.draw_log()
         self.draw_status()
-        self.draw_typing_message_right() # Affiche la frappe/persistance à droite
+        self.draw_typing_message_right()
         
         
-        # Dessiner les boutons de vote
+        # Dessiner les boutons d'Action/Vote
         for btn in self.action_buttons:
             btn.draw()
+            
+        # NOUVEAU: Afficher les boutons de nuit si nécessaire (et s'ils ne sont pas déjà affichés)
+        if self.current_state == GameState.NIGHT_HUMAN_ACTION and not self.action_buttons:
+            self._display_human_night_action_buttons()
         
         # Dessiner le champ de chat si en mode DEBATE
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
@@ -327,10 +356,11 @@ class LoupGarouGame(arcade.Window):
     def on_update(self, delta_time):
         """Logique : appelé à chaque image pour mettre à jour l'état."""
         
-        if self.current_state == GameState.SETUP:
+        # Ne pas exécuter la logique si nous sommes en SETUP ou en attente d'action humaine
+        if self.current_state in [GameState.SETUP, GameState.NIGHT_HUMAN_ACTION]:
             return
 
-        # 1. EXÉCUTION DE LA LOGIQUE DE NUIT
+        # 1. EXÉCUTION DE LA LOGIQUE DE NUIT (IA/Résolution)
         if self.current_state == GameState.NIGHT_IA_ACTION:
              night_message = self.game_manager._night_phase() 
              self.log_messages.append(night_message)
@@ -357,11 +387,135 @@ class LoupGarouGame(arcade.Window):
                  self.log_messages.append(f"\n🎉 VICTOIRE des {winner.value} ! Fin de la partie.")
                  self.current_state = GameState.GAME_OVER
             else:
-                 self.current_state = GameState.NIGHT_IA_ACTION
-                 self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.")
+                 # Début de la nouvelle nuit : vérifier si l'humain a une action
+                 self.log_messages.append(f"\nJOUR {self.game_manager.day + 1} : La NUIT tombe.") 
+                 if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
+                     self.current_state = GameState.NIGHT_HUMAN_ACTION
+                 else:
+                     self.current_state = GameState.NIGHT_IA_ACTION
 
     
-    # --- MÉTHODES DE LOGIQUE DE JEU INTERNE (UTILISENT UNDERSCORE) ---
+    # --- LOGIQUE D'ACTION HUMAINE DE NUIT ---
+
+    def _display_human_night_action_buttons(self):
+        """Prépare les boutons d'action de nuit pour la Voyante/Sorcière humaine."""
+        
+        self.action_buttons = []
+        alive = self.game_manager.get_alive_players()
+        role_name = self.human_player.role.name
+        
+        button_y = 50 
+        button_width = 150
+        button_height = 40
+        
+        targets = [p for p in alive if p != self.human_player]
+        targets_msg = ""
+
+        if role_name == "Voyante":
+            action = "ENQUÊTER"
+            targets_msg = "Choisis qui enquêter (Voyante) :"
+            
+        elif role_name == "Sorcière" and (self.human_player.has_kill_potion or self.human_player.has_life_potion):
+            targets_msg = "Sorcière: Choisis ta cible ou PASSE"
+            
+            # Afficher les cibles (tous les joueurs sauf soi-même)
+            targets_for_potions = [p for p in alive if p != self.human_player]
+
+            # Afficher un bouton Tuer pour chaque cible si la potion est disponible
+            if self.human_player.has_kill_potion:
+                for i, target in enumerate(targets_for_potions):
+                    x_offset = -200 if i < 3 else 0 # Exemple de décalage pour ne pas superposer
+                    y_pos = button_y + (i * 50) 
+
+                    # C'est complexe ici sans interface modale, donc on affiche un seul bouton Tuer et Passer
+                    
+                    # Simplification pour l'interface : un bouton Tuer/Sauver qui mène à la cible
+                    pass
+            
+            # Utilisation de boutons génériques pour la Sorcière pour débloquer
+            if self.human_player.has_kill_potion:
+                 self.action_buttons.append(MenuButton(SCREEN_WIDTH / 2 - 160, button_y, 140, button_height, "TUER [Potion Mort]", "TUER"))
+                 
+            if self.human_player.has_life_potion:
+                 self.action_buttons.append(MenuButton(SCREEN_WIDTH / 2 + 10, button_y, 140, button_height, "SAUVER [Potion Vie]", "SAUVER"))
+                 
+            self.action_buttons.append(MenuButton(SCREEN_WIDTH / 2 + 180, button_y, 100, button_height, "PASSER", "PASSER"))
+            
+            self.log_messages.append(f"-> {targets_msg}")
+            return
+            
+        else:
+            # Rôle sans action nocturne
+            self.current_state = GameState.NIGHT_IA_ACTION
+            return
+
+        self.log_messages.append(f"-> {role_name}: {targets_msg}")
+
+        # Création des boutons de ciblage standard (Voyante)
+        start_x = SCREEN_WIDTH / 2 - (len(targets) * (button_width + 10) / 2) + 50
+        
+        for i, target in enumerate(targets):
+            x = start_x + (i * (button_width + 10))
+            btn = MenuButton(
+                x, button_y, button_width, button_height, 
+                f"{action} {target.name}", 
+                f"{action}:{target.name}" 
+            )
+            self.action_buttons.append(btn)
+
+
+    def _handle_human_night_action_click(self, x, y):
+        """Traite le clic du joueur humain sur un bouton d'action de nuit."""
+        
+        clicked_action = None
+        for btn in self.action_buttons:
+            if btn.check_click(x, y):
+                clicked_action = btn.action
+                break
+        
+        if not clicked_action:
+            return
+
+        self.action_buttons = [] # Cache les boutons
+        
+        # Logique simplifiée pour Sorcière/Voyante
+        if clicked_action == "PASSER":
+            self.log_messages.append("Action de nuit passée.")
+            self.current_state = GameState.NIGHT_IA_ACTION
+            return
+        
+        elif self.human_player.role.name == "Voyante" and ":" in clicked_action:
+            action_type, target_name = clicked_action.split(":", 1)
+            target = next((p for p in self.game_manager.players if p.name == target_name), None)
+            
+            if action_type == "ENQUÊTER" and target:
+                target_role = target.role.name
+                target_camp = target.role.camp.value
+                self.log_messages.append(f"🕵️‍♀️ Révélation : {target.name} est un(e) **{target_role}** ({target_camp}).")
+                self.current_state = GameState.NIGHT_IA_ACTION
+                return
+                
+        elif self.human_player.role.name == "Sorcière" and (clicked_action == "TUER" or clicked_action == "SAUVER"):
+            # NOTE: La Sorcière humaine devrait cibler un joueur. 
+            # Comme l'interface actuelle ne gère pas la sélection de cible APRES le clic sur Tuer/Sauver,
+            # nous considérons que c'est une intention, et la résolution est gérée dans game_core.
+            
+            if clicked_action == "TUER" and self.human_player.has_kill_potion:
+                 self.human_player.has_kill_potion = False
+                 self.log_messages.append(f"🧪 Sorcière : Potion de mort utilisée. L'impact sera résolu.")
+            elif clicked_action == "SAUVER" and self.human_player.has_life_potion:
+                 self.human_player.has_life_potion = False
+                 self.log_messages.append(f"💖 Sorcière : Potion de vie utilisée. L'impact sera résolu.")
+            
+            self.current_state = GameState.NIGHT_IA_ACTION
+            return
+            
+        # Poursuivre vers la nuit IA
+        self.log_messages.append("Résolution des actions IA...")
+        self.current_state = GameState.NIGHT_IA_ACTION
+        
+
+    # --- LOGIQUE D'UPDATE ET D'AFFICHAGE ---
     
     def _update_debate(self, delta_time):
         """Gère le temps et la parole pendant la phase de débat."""
@@ -390,7 +544,7 @@ class LoupGarouGame(arcade.Window):
                  self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
 
             self.current_speaker = None 
-            self.message_is_complete = False # CLEAR FLAG pour le prochain débat
+            self.message_is_complete = False 
             self.log_messages.append("\n🗳️ FIN DU DÉBAT. PLACE AU VOTE.")
             self.messages_generated = 0 
             
@@ -401,14 +555,13 @@ class LoupGarouGame(arcade.Window):
                 self.current_state = GameState.VOTING
                 
         # --- LOGIQUE DE PRISE DE PAROLE (IA) ---
-        # Si aucun orateur, ou si le message précédent est complet (persistence active), on cherche un nouvel orateur.
         elif (self.current_speaker is None or self.message_is_complete) and self.messages_generated < self.max_messages_per_debate: 
             
             # 1. Clear old message data (ce qui va effacer l'affichage persistant)
             self.current_speaker = None
             self.current_message_full = ""
             self.current_message_display = ""
-            self.message_is_complete = False # Reset flag
+            self.message_is_complete = False 
             
             # 2. Sélectionner et commencer le nouveau message
             alive_ais = [p for p in self.game_manager.get_alive_players() if not p.is_human]
@@ -512,6 +665,13 @@ class LoupGarouGame(arcade.Window):
                 f"Temps Restant : {int(self.debate_timer)}s",
                 RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
             )
+        
+        # Afficher l'instruction de la nuit
+        if self.current_state == GameState.NIGHT_HUMAN_ACTION:
+             arcade.draw_text(
+                f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})",
+                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 200, arcade.color.ORANGE, 16
+            )
 
     def draw_typing_message_right(self):
         """Dessine le message en cours de frappe de l'IA (zone de 'chat actif' persistant) à DROITE."""
@@ -559,11 +719,12 @@ def main():
 
 
 if __name__ == "__main__":
-    import os
+    
+    # Création du dossier context si nécessaire
     if not os.path.exists("context"):
         os.makedirs("context")
         for i in range(1, 10):
-            with open(f"context/perso_{i}.txt", "w", encoding="utf-8") as f:
+            with open(f"context/perso_placeholder_{i}.txt", "w", encoding="utf-8") as f:
                 f.write(f"Tu es l'IA {i}. Ton rôle est d'être un joueur de Loup Garou. Réponds de manière concise.")
 
     main()

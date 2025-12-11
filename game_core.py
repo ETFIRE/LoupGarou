@@ -36,7 +36,7 @@ class Player:
         self.has_kill_potion = False
         self.has_life_potion = False
         self.wolf_teammates = [] 
-        self.has_hunter_shot = True # NOUVEAU: Le Chasseur commence avec un tir
+        self.has_hunter_shot = True
 
     def assign_role(self, role):
         self.role = role
@@ -123,7 +123,7 @@ class GameManager:
                 player.has_kill_potion = True
                 player.has_life_potion = True
             elif role.name == "Chasseur":
-                player.has_hunter_shot = True # Le Chasseur reçoit son tir
+                player.has_hunter_shot = True
             
             if not player.is_human:
                 # Ajout du rôle au contexte interne de l'IA
@@ -183,15 +183,26 @@ class GameManager:
     # --- Phase de Nuit ---
 
     def _night_phase(self):
-        """Orchestre les actions secrètes des joueurs (Voyante, Loup, Sorcière...)."""
+        """Orchestre les actions secrètes des joueurs (Voyante, Loup, Sorcière, Petite Fille...)."""
         
         alive = self.get_alive_players()
         self.day += 1 
         
-        # FIX: S'il s'agit de la Nuit 1, aucune mort n'est possible
+        pf_revelation = "" # Message de révélation pour la Petite Fille Humaine (si applicable)
+        
+        # --- NOUVEAU : Logique Petite Fille Humaine Nuit 1 (Découverte) ---
+        if self.human_player and self.human_player.role and self.human_player.role.name == "Petite Fille":
+            alive_wolves = [p for p in alive if p.role.camp == Camp.LOUP]
+            if alive_wolves:
+                # Select a random alive wolf
+                discovered_wolf = random.choice(alive_wolves)
+                pf_revelation = f"\n🔍 PETITE FILLE : Tu as découvert que **{discovered_wolf.name}** est un Loup-Garou ! Utilise cette information avec sagesse."
+            else:
+                pf_revelation = "\n🔍 PETITE FILLE : Il ne reste plus de Loups-Garous à découvrir."
+        # --- FIN NOUVEAU ---
+        
+        # FIX: S'il s'agit de la Nuit 1, aucune mort n'est possible (Nuit Blanche)
         if self.day == 1:
-            # On laisse les actions (Voyante, Loup) se dérouler pour l'historique et la mécanique, 
-            # mais on ignore l'exécution de la mise à mort.
             
             # Exécution de la Voyante (INVESTIGATE) - doit rester pour donner l'info à l'IA
             for voyante in [p for p in alive if p.role.night_action == NightAction.INVESTIGATE]:
@@ -204,9 +215,9 @@ class GameManager:
                             "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value}). Utilise cette info dans le débat."
                         })
             
-            # Les Loups choisissent une cible, mais elle n'est pas exécutée
+            # Les Loups choisissent une cible, mais l'exécution est ignorée.
             self._recalculate_wolf_count()
-            return "🌙 Première nuit passée. Le village se réveille sans drame !"
+            return "🌙 Première nuit passée. Le village se réveille sans drame !" + pf_revelation
 
         
         # --- LOGIQUE POUR NUIT 2 et suivantes ---
@@ -214,6 +225,7 @@ class GameManager:
         ordered_actions = {
             NightAction.INVESTIGATE: [],
             NightAction.KILL: [],
+            NightAction.WATCH: [], 
             NightAction.POTION: [],
         }
         
@@ -241,10 +253,19 @@ class GameManager:
                 target_name = wolves_acting[0].decide_night_action(alive)
                 kill_target = next((p for p in alive if p.name == target_name), None)
         
-        
+        # 3. Action de la Petite Fille IA (WATCH) - Elle voit la cible des Loups
+        if kill_target:
+            for petite_fille in ordered_actions[NightAction.WATCH]:
+                 if not petite_fille.is_human:
+                     # L'IA Petite Fille est informée de la cible
+                     petite_fille.history.append({
+                         "role": "system", 
+                         "content": f"Tu as vu les Loups cibler {kill_target.name} cette nuit. Utilise cette information cruciale."
+                     })
+                     
         is_saved = False # Flag de sauvetage
         
-        # 3. Action de la Sorcière (POTION)
+        # 4. Action de la Sorcière (POTION)
         sorciere = next((p for p in alive if p.role.name == "Sorcière"), None)
         
         if sorciere and sorciere.is_alive and kill_target:
@@ -252,7 +273,7 @@ class GameManager:
             # Vérification de la potion de vie (Sauvetage)
             if sorciere.has_life_potion:
                 
-                # Logique normale pour Nuit 2+
+                # Logique IA normale
                 if not sorciere.is_human:
                     # La Sorcière IA a 50% de chance de sauver si la cible n'est pas un Loup
                     if kill_target.role.camp != Camp.LOUP and random.random() < 0.5:
@@ -263,15 +284,15 @@ class GameManager:
         if kill_target and kill_target.is_alive:
             if is_saved:
                 self._recalculate_wolf_count()
-                return f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière !"
+                return f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière !" + pf_revelation
             else:
                 # Élimination confirmée
                 kill_target.is_alive = False 
                 self._recalculate_wolf_count()
-                return f"❌ {kill_target.name} est mort(e) pendant la nuit. Rôle: {kill_target.role.name}."
+                return f"❌ {kill_target.name} est mort(e) pendant la nuit. Rôle: {kill_target.role.name}." + pf_revelation
 
         self._recalculate_wolf_count()
-        return "Nuit passée, personne n'est mort."
+        return "Nuit passée, personne n'est mort." + pf_revelation
 
 
     # --- Phase de Jour (Vote) ---
