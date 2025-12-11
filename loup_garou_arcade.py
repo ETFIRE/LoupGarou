@@ -1,5 +1,6 @@
 # loup_garou_arcade.py
 
+# -*- coding: utf-8 -*-
 import arcade
 import random
 import time
@@ -10,7 +11,7 @@ import math
 from dotenv import load_dotenv
 load_dotenv() 
 
-
+# Importation de vos classes de jeu
 from game_core import GameManager, Player 
 from enums_and_roles import Camp, NightAction 
 
@@ -136,7 +137,8 @@ class LoupGarouGame(arcade.Window):
 
         # 1. Initialisation du Moteur de Jeu
         self.game_manager = GameManager(human_player_name=human_name)
-        self.human_player = next((p for p in self.game_manager.players if p.is_human), None)
+        # L'instance du joueur humain est maintenant disponible via GameManager
+        self.human_player = self.game_manager.human_player
         
         # 2. Variables d'Affichage et Log
         self.log_messages = [] 
@@ -150,7 +152,7 @@ class LoupGarouGame(arcade.Window):
         self.current_message_full = ""
         self.current_message_display = ""
         self.typing_speed_counter = 0 
-        self.typing_delay = 1 # Frappe rapide
+        self.typing_delay = 1 
         self.messages_generated = 0           
         self.max_messages_per_debate = 10     
         
@@ -167,13 +169,13 @@ class LoupGarouGame(arcade.Window):
         )
         
         # Initialisation des Sprites
-        self.setup_sprites()
+        self._setup_sprites()
         
         # Commencer le jeu
         self.start_game_loop()
 
     
-    def setup_sprites(self):
+    def _setup_sprites(self):
         """Crée les représentations visuelles des joueurs."""
         num_players = len(self.game_manager.players)
         center_x = SCREEN_WIDTH / 2
@@ -193,6 +195,16 @@ class LoupGarouGame(arcade.Window):
         """Commence la première phase du jeu."""
         self.log_messages.append("--- Initialisation de la Partie ---")
         self.log_messages.append(f"Ton rôle est: {self.human_player.role.name}")
+        
+        # --- NOUVEAU: INFORMER LE LOUP HUMAIN DE SES COÉQUIPIERS ---
+        if self.human_player.role.camp == Camp.LOUP:
+            if self.human_player.wolf_teammates:
+                teammates_str = ", ".join(self.human_player.wolf_teammates)
+                self.log_messages.append(f"🐺 **TU ES LOUP-GAROU** ! Tes coéquipiers sont : {teammates_str}")
+            else:
+                 self.log_messages.append("🐺 **TU ES LOUP-GAROU** ! Tu es le seul loup de la partie.")
+        # --- FIN NOUVEAU ---
+        
         self.current_state = GameState.NIGHT_IA_ACTION
         self.log_messages.append(f"JOUR 1 : La NUIT tombe.")
 
@@ -255,7 +267,7 @@ class LoupGarouGame(arcade.Window):
         self.player_sprites.draw()
         self.draw_log()
         self.draw_status()
-        self.draw_typing_message()
+        
         
         # Dessiner les boutons de vote
         for btn in self.action_buttons:
@@ -271,7 +283,7 @@ class LoupGarouGame(arcade.Window):
         
         # 1. EXÉCUTION DE LA LOGIQUE DE NUIT
         if self.current_state == GameState.NIGHT_IA_ACTION:
-             night_message = self.game_manager.night_phase()
+             night_message = self.game_manager._night_phase() 
              self.log_messages.append(night_message)
              
              self.current_state = GameState.DEBATE
@@ -281,11 +293,12 @@ class LoupGarouGame(arcade.Window):
 
         # 2. GESTION DU DÉBAT
         elif self.current_state == GameState.DEBATE:
-            self.update_debate(delta_time)
+            self._update_debate(delta_time) 
         
-        # 3. GESTION DU VOTE (Déclenché par le clic humain OU si l'humain est mort)
+        # 3. GESTION DU VOTE
         elif self.current_state == GameState.VOTING:
-            lynch_message = self.game_manager.lynch_result(self.game_manager.get_alive_players()) 
+            # L'appel à _lynch_result se fait ici
+            lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players()) 
             self.log_messages.append(lynch_message)
             self.current_state = GameState.RESULT
         
@@ -300,7 +313,9 @@ class LoupGarouGame(arcade.Window):
                  self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.")
 
     
-    def update_debate(self, delta_time):
+    # --- MÉTHODES DE LOGIQUE DE JEU INTERNE (UTILISENT UNDERSCORE) ---
+    
+    def _update_debate(self, delta_time):
         """Gère le temps et la parole pendant la phase de débat."""
         
         self.debate_timer -= delta_time
@@ -342,7 +357,8 @@ class LoupGarouGame(arcade.Window):
             if alive_ais:
                 speaker = random.choice(alive_ais)
                 
-                debate_message = speaker.generate_debate_message(self.game_manager.get_public_status())
+                # NOTE: Utilisation correcte de _get_public_status() de GameManager
+                debate_message = speaker.generate_debate_message(self.game_manager._get_public_status())
                 
                 self.current_speaker = speaker
                 self.current_message_full = debate_message
@@ -377,12 +393,13 @@ class LoupGarouGame(arcade.Window):
         self.log_messages.append(f"-> {self.human_player.name}, choisis ta victime (CLIC) :")
 
 
-    def _draw_log(self):
+    # --- MÉTHODES D'AFFICHAGE (SANS UNDERSCORE) ---
+    
+    def draw_log(self):
         # --- LOGIQUE DE DESSIN DU LOG AMÉLIORÉE (CORRECTIF FINAL VISUEL) ---
         LOG_X_START = 10
         LOG_WIDTH = SCREEN_WIDTH // 3 
         LOG_HEIGHT = SCREEN_HEIGHT - 40 
-        LOG_SHIFT_DOWN = 300
         
         # 1. Dessiner le fond sombre (semi-transparent)
         arcade.draw_lbwh_rectangle_filled(
@@ -396,7 +413,7 @@ class LoupGarouGame(arcade.Window):
         # 2. Paramètres de police robustes
         x_pos = LOG_X_START + 10
         y_pos = SCREEN_HEIGHT - 30 
-        line_spacing = 60 # ESPACEMENT SÛR 
+        line_spacing = 30 # ESPACEMENT SÛR 
         font_size = 14 
         
         # Titre
@@ -444,8 +461,6 @@ class LoupGarouGame(arcade.Window):
                 f"Temps Restant : {int(self.debate_timer)}s",
                 SCREEN_WIDTH - 200, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
             )
-
-    # --- La méthode _draw_typing_message est désormais supprimée ---
 
 
 # --- Lancement du Jeu ---
