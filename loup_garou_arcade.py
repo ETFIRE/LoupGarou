@@ -154,6 +154,7 @@ class LoupGarouGame(arcade.Window):
         self.typing_delay = 1 
         self.messages_generated = 0           
         self.max_messages_per_debate = 10     
+        self.message_is_complete = False # <-- NOUVELLE VARIABLE DE GESTION
         
         # 4. INITIALISATION DU CHAT INPUT (Déplacé à droite)
         
@@ -163,11 +164,11 @@ class LoupGarouGame(arcade.Window):
         
         input_x = SCREEN_WIDTH - PANEL_WIDTH - 10 
         input_y = 5 
-        input_width = PANEL_WIDTH - 100 # Laisser de la place pour le bouton Envoyer
+        input_width = PANEL_WIDTH - 100 
         
         self.chat_input = ChatInput(input_x, input_y, input_width, INPUT_HEIGHT, self)
         
-        # Assignation du bouton Envoyer à ChatInput (placé à droite de l'input box)
+        # Assignation du bouton Envoyer à ChatInput
         self.chat_input.send_button = MenuButton(
             input_x + input_width + 50, # x
             input_y + INPUT_HEIGHT / 2, # y
@@ -247,6 +248,7 @@ class LoupGarouGame(arcade.Window):
                     self.current_message_display = self.current_message_full
                     self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
                 self.current_speaker = None
+                self.message_is_complete = False # CLEAR FLAG
                 self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
 
 
@@ -254,30 +256,46 @@ class LoupGarouGame(arcade.Window):
         """Affichage : appelé à chaque image pour dessiner."""
         self.clear()
         
-        # Dessiner les joueurs
+        # --- DÉBUT DE LA LOGIQUE DE DESSIN DES JOUEURS CORRIGÉE ---
+        
+        # Récupérer les informations sur le joueur humain
+        human_is_wolf = (self.human_player.role.camp == Camp.LOUP)
+        wolf_teammates = self.human_player.wolf_teammates
+        
         for player in self.game_manager.players:
              sprite = self.player_map.get(player.name)
              if sprite:
+                 # Couleur par défaut pour les non-loups et les inconnus
                  color = arcade.color.WHITE
+                 
+                 # 1. Vérification du camp
                  if not player.is_alive:
                      color = arcade.color.RED
                      sprite.color = arcade.color.DARK_RED 
                  else:
                      sprite.color = arcade.color.GREEN 
+                     
+                 # 2. AFFICHAGE DES ALLIÉS EN JAUNE (UNIEQUEMENT SI LE JOUEUR HUMAIN EST LOUP)
+                 if human_is_wolf and player.name in wolf_teammates:
+                     color = arcade.color.YELLOW # Nom en jaune vif pour les alliés
+                 
+                 # 3. Dessiner le nom
                  arcade.draw_text(
                      f"{player.name} ({'IA' if not player.is_human else 'H'})",
                      sprite.center_x, sprite.center_y + 60, color, 12, anchor_x="center"
                  )
+                 
+                 # 4. Afficher le rôle du joueur humain ou en fin de partie
                  if self.current_state == GameState.GAME_OVER or player.is_human:
                      role_text = f"Role: {player.role.name}"
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
 
         self.player_sprites.draw()
+        # --- FIN DE LA LOGIQUE DE DESSIN DES JOUEURS CORRIGÉE ---
         
-        # AFFICHAGE DE LA LOGIQUE (Log Gauche, Status et Input Droite)
         self.draw_log()
         self.draw_status()
-        self.draw_typing_message_right() # NOUVEL APPEL
+        self.draw_typing_message_right()
         
         
         # Dessiner les boutons de vote
@@ -331,26 +349,29 @@ class LoupGarouGame(arcade.Window):
         self.debate_timer -= delta_time
         
         # --- GESTION DE LA VITESSE D'ÉCRITURE ---
-        if self.current_message_display != self.current_message_full:
+        # L'IA tape tant qu'elle a un message et que le flag de complétion n'est pas levé
+        if self.current_speaker is not None and not self.message_is_complete:
             self.typing_speed_counter += 1
             if self.typing_speed_counter >= self.typing_delay:
                 current_len = len(self.current_message_display)
                 if current_len < len(self.current_message_full):
                     self.current_message_display += self.current_message_full[current_len]
                 else:
-                    # AJOUT AU LOG À LA FIN DE LA FRAPPE
+                    # TYPING IS COMPLETE: LOG MESSAGE AND SET PERSISTENCE FLAG
                     self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
-                    self.current_speaker = None 
+                    self.message_is_complete = True # Le message reste visible à droite
                 self.typing_speed_counter = 0
 
         # --- TRANSITION VERS LA PHASE DE VOTE ---
         if (self.debate_timer <= 0 or self.messages_generated >= self.max_messages_per_debate) and self.current_state == GameState.DEBATE:
             
-            # S'assurer que le dernier message est loggé même si on sort du timer
-            if self.current_speaker is not None:
+            # S'assurer que le dernier message est loggé si non fini (cas du skip par timer)
+            if self.current_speaker is not None and not self.message_is_complete:
+                 self.current_message_display = self.current_message_full
                  self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
-                 self.current_speaker = None
 
+            self.current_speaker = None # CLEAR SPEAKER FOR END OF DEBATE
+            self.message_is_complete = False # CLEAR FLAG
             self.log_messages.append("\n🗳️ FIN DU DÉBAT. PLACE AU VOTE.")
             self.messages_generated = 0 
             
@@ -361,8 +382,16 @@ class LoupGarouGame(arcade.Window):
                 self.current_state = GameState.VOTING
                 
         # --- LOGIQUE DE PRISE DE PAROLE (IA) ---
-        elif self.current_speaker is None and self.current_state == GameState.DEBATE and self.messages_generated < self.max_messages_per_debate: 
+        # Si aucun orateur, ou si le message précédent est complet (persistence active), on cherche un nouvel orateur.
+        elif (self.current_speaker is None or self.message_is_complete) and self.messages_generated < self.max_messages_per_debate: 
             
+            # 1. Clear old message data (ce qui va effacer l'affichage persistant)
+            self.current_speaker = None
+            self.current_message_full = ""
+            self.current_message_display = ""
+            self.message_is_complete = False # Reset flag
+            
+            # 2. Sélectionner et commencer le nouveau message
             alive_ais = [p for p in self.game_manager.get_alive_players() if not p.is_human]
             if alive_ais:
                 speaker = random.choice(alive_ais)
@@ -389,7 +418,6 @@ class LoupGarouGame(arcade.Window):
         
         voting_targets = [p for p in alive if p != self.human_player]
         
-        # Les boutons restent centrés au milieu de l'écran (hors zone de log)
         CENTER_X = SCREEN_WIDTH / 2 
         start_x = CENTER_X - (len(voting_targets) * (button_width + 10) / 2)
         
@@ -407,7 +435,7 @@ class LoupGarouGame(arcade.Window):
     # --- MÉTHODES D'AFFICHAGE (SANS UNDERSCORE) ---
     
     def draw_log(self):
-        # --- LOGIQUE DE DESSIN DU LOG AMÉLIORÉE (CORRECTIF FINAL VISUEL) ---
+        """Dessine le Journal de Bord (Historique Permanent UNIQUEMENT) à GAUCHE."""
         LOG_X_START = 10
         LOG_WIDTH = SCREEN_WIDTH // 3 
         LOG_HEIGHT = SCREEN_HEIGHT - 40 
@@ -424,31 +452,14 @@ class LoupGarouGame(arcade.Window):
         # 2. Paramètres de police robustes
         x_pos = LOG_X_START + 10
         y_pos = SCREEN_HEIGHT - 30 
-        
-        # NOUVEL ESPACEMENT MAXIMAL : 70px pour une sécurité totale contre la superposition
-        line_spacing = 70 # CHANGÉ: Augmenté pour la sécurité maximale
+        line_spacing = 70 # ESPACEMENT SÛR 
         font_size = 14 
         
         # Titre
         arcade.draw_text("JOURNAL DE BORD:", x_pos, y_pos, arcade.color.ORANGE_RED, 14)
-        y_pos -= 30 # Drop après le titre
+        y_pos -= 30 
         
-        # 3. Afficher le message en cours de frappe (Si actif)
-        if self.current_speaker is not None:
-            cursor = ("|" if int(time.time() * 2) % 2 == 0 else "")
-            
-            arcade.draw_text(
-                f"💬 {self.current_speaker.name}: {self.current_message_display}{cursor}", 
-                x_pos, 
-                y_pos, 
-                arcade.color.AZURE, # Bleu pour la frappe
-                font_size, 
-                width=LOG_WIDTH - 20,
-                multiline=True
-            )
-            y_pos -= line_spacing # Décale l'historique d'une ligne
-        
-        # 4. Afficher l'historique permanent (du plus récent au plus ancien, de haut en bas)
+        # 3. Afficher l'historique permanent (du plus récent au plus ancien, de haut en bas)
         for msg in reversed(self.log_messages):
             if y_pos < 50: 
                 break
@@ -462,7 +473,7 @@ class LoupGarouGame(arcade.Window):
                 width=LOG_WIDTH - 20,
                 multiline=True
             )
-            y_pos -= line_spacing # Assure le décalage, même pour les messages courts 
+            y_pos -= line_spacing 
             
     def draw_status(self):
         """Dessine les compteurs (Loups, Timer) à DROITE, en haut."""
@@ -486,21 +497,31 @@ class LoupGarouGame(arcade.Window):
     def draw_typing_message_right(self):
         """Dessine le message en cours de frappe de l'IA (zone de 'chat actif') à DROITE."""
         
-        if self.current_speaker and self.current_message_display != self.current_message_full:
+        # Le message s'affiche tant que self.current_speaker n'est pas None
+        if self.current_speaker is not None: 
+            
             PANEL_WIDTH = SCREEN_WIDTH // 3
             RIGHT_PANEL_START_X = SCREEN_WIDTH - PANEL_WIDTH
             
-            # Afficher la bulle "IA tape..."
+            is_typing = (not self.message_is_complete)
+            
+            # Titre : Indique si l'IA tape ou si elle a fini (message persistant)
+            title_text = f"💬 {self.current_speaker.name} tape..." if is_typing else f"🗣️ {self.current_speaker.name} a dit:"
+            title_color = arcade.color.AZURE if is_typing else arcade.color.WHITE
+            
             arcade.draw_text(
-                f"💬 {self.current_speaker.name} tape...",
-                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 100, arcade.color.AZURE, 16, anchor_x="left"
+                title_text,
+                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 100, title_color, 16, anchor_x="left"
             )
             
-            cursor = ("|" if int(time.time() * 2) % 2 == 0 else "")
+            # Curseur visible uniquement pendant la frappe
+            cursor = ("|" if is_typing and int(time.time() * 2) % 2 == 0 else "")
             
-            # Afficher le texte tapé en dessous
+            # Texte affiché : en cours de frappe ou message complet
+            display_text = self.current_message_display if is_typing else self.current_message_full
+            
             arcade.draw_text(
-                f"{self.current_message_display}{cursor}",
+                f"{display_text}{cursor}",
                 RIGHT_PANEL_START_X + 20, 
                 SCREEN_HEIGHT - 130, 
                 arcade.color.LIGHT_GRAY, 
@@ -508,6 +529,7 @@ class LoupGarouGame(arcade.Window):
                 width=PANEL_WIDTH - 40,
                 multiline=True
             )
+        # Si self.current_speaker est None, l'affichage disparaît.
 
 
 # --- Lancement du Jeu ---

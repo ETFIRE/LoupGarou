@@ -20,7 +20,7 @@ class Player:
         self.is_alive = True
         self.has_kill_potion = False
         self.has_life_potion = False
-        self.wolf_teammates = [] # NOUVEAU: Pour stocker les coéquipiers si c'est un Loup
+        self.wolf_teammates = [] 
 
     def assign_role(self, role):
         self.role = role
@@ -50,7 +50,8 @@ class GameManager:
         
         self._distribute_roles()
         
-        self.wolves_alive = sum(1 for p in self.players if p.role.camp == Camp.LOUP and p.is_alive)
+        # Initialisation du compte (sera recalculé après les morts)
+        self._recalculate_wolf_count() 
         self.vote_counts = {} 
 
     
@@ -116,6 +117,10 @@ class GameManager:
                  p.wolf_teammates = co_wolves 
         
         # --- FIN LOGIQUE LOUPS ---
+
+    def _recalculate_wolf_count(self):
+        """Recalcule le nombre de loups vivants et met à jour l'attribut."""
+        self.wolves_alive = sum(1 for p in self.players if p.role.camp == Camp.LOUP and p.is_alive)
             
     def get_alive_players(self):
         """Retourne la liste des joueurs vivants."""
@@ -198,13 +203,16 @@ class GameManager:
         # Exécution de l'élimination
         if kill_target and kill_target.is_alive:
             if is_saved:
+                self._recalculate_wolf_count() # Recalculer après la décision
                 # La Sorcière a utilisé sa potion de vie !
                 return f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière !"
             else:
                 # Élimination confirmée
                 kill_target.is_alive = False 
+                self._recalculate_wolf_count() # <-- FIX : Mise à jour du compte après la mort
                 return f"❌ {kill_target.name} est mort(e) pendant la nuit. Rôle: {kill_target.role.name}."
 
+        self._recalculate_wolf_count() # Recalculer si personne n'est mort (sécurité)
         return "Nuit passée, personne n'est mort."
 
 
@@ -254,10 +262,13 @@ class GameManager:
         
         if lynch_target:
             lynch_target.is_alive = False
+            self._recalculate_wolf_count() # <-- FIX : Mise à jour du compte après la mort
             message = f"🔥 {lynch_target.name} est lynché avec {max_votes} votes. Rôle: {lynch_target.role.name}."
             
             if lynch_target.role.name == "Chasseur":
                 message += "\nCHASSEUR ACTIF : Tuer quelqu'un..." 
+        else:
+            message = "Erreur: Cible de lynchage invalide."
         
         self.vote_counts = {}
         return message
