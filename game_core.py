@@ -12,32 +12,35 @@ from chat_agent import ChatAgent # L'IA
 # --- CLASSE PLAYER (NON IA) ---
 
 class Player:
-    """Représente un joueur humain."""
+    """Représente un joueur humain (ou IA, mais ChatAgent hérite de celle-ci)."""
     def __init__(self, name, is_human=True):
         self.name = name
         self.is_human = is_human
         self.role = None
         self.is_alive = True
-        self.votes_against = 0
+        self.has_kill_potion = False
+        self.has_life_potion = False
 
     def assign_role(self, role):
         self.role = role
     
     def __repr__(self):
-        return f"{self.name} ({self.role.name if self.role else 'N/A'})"
+        status = "Vivant" if self.is_alive else "Mort"
+        return f"[{'Humain' if self.is_human else 'IA'}] {self.name} ({self.role.name if self.role else 'N/A'} - {status})"
+
+
+# --- CLASSE GAMEMANAGER (VERSION COMPLÈTE UNIQUE) ---
 
 class GameManager:
-    """Gère le déroulement du jeu."""
+    """Gère le déroulement et la logique du jeu."""
     
-    DEBATE_TIME_LIMIT = 20 
+    DEBATE_TIME_LIMIT = 120 
     
     def __init__(self, human_player_name="Humain_Lucie"):
         
         self.day = 0
-        self.players = []
-        self.available_roles = ROLES_POOL.copy()
-        self.vote_counts = {}
-        self.game_log = []
+        self.players = [] 
+        self.available_roles = list(ROLES_POOL.values())
         
         self._setup_players(human_player_name)
         self._distribute_roles()
@@ -49,9 +52,10 @@ class GameManager:
     # --- METHODES DE SETUP ET GETTERS ---
     
     def _setup_players(self, human_player_name):
-        """Initialise les joueurs."""
-        # Créer 9 IA
-        ia_names = [f"IA-{chr(65+i)}" for i in range(9)]  # IA-A à IA-I
+        """Initialise les 9 IA et le joueur humain."""
+        ia_names = [f"IA {i+1}" for i in range(9)]
+        personality_paths = [f"context/perso_{i+1}.txt" for i in range(9)]
+        random.shuffle(personality_paths) 
         
         self.players = []
         for name, path in zip(ia_names, personality_paths):
@@ -59,17 +63,22 @@ class GameManager:
             
         # NOTE: Le ChatAgent hérite de Player, donc on peut utiliser Player ici
         self.players.append(Player(name=human_player_name, is_human=True))
-        
-        random.shuffle(self.players)
-    
-    def _distribute_roles(self):
-        """Distribue les rôles aléatoirement."""
-        random.shuffle(self.available_roles)
-        
-        for i, player in enumerate(self.players):
-            if i < len(self.available_roles):
-                role = self.available_roles[i]
-                player.assign_role(role)
+
+    def _distribute_roles(self, custom_roles=None):
+        """Distribue aléatoirement les rôles aux joueurs."""
+        roles_to_distribute = custom_roles if custom_roles else list(self.available_roles)
+        if len(self.players) != len(roles_to_distribute):
+             raise ValueError("Le nombre de joueurs doit correspondre au nombre de rôles disponibles.")
+
+        random.shuffle(roles_to_distribute)
+
+        for player in self.players:
+            role = roles_to_distribute.pop()
+            player.assign_role(role)
+            
+            if role.name == "Sorcière":
+                player.has_kill_potion = True
+                player.has_life_potion = True
                 
             if not player.is_human:
                 # Ajout du rôle au contexte interne de l'IA
@@ -79,31 +88,22 @@ class GameManager:
                 })
             
     def get_alive_players(self):
+        """Retourne la liste des joueurs vivants."""
         return [p for p in self.players if p.is_alive]
-    
-    def get_human_player(self):
-        for p in self.players:
-            if p.is_human:
-                return p
-        return None
-    
+
     def _get_public_status(self):
-        """Retourne l'état public des joueurs."""
-        return [{
-            'name': p.name,
-            'is_alive': p.is_alive,
-            'role_known': (p.role.camp.value if not p.is_alive else 'Inconnu')
-        } for p in self.players]
-    
+        """Retourne l'état public des joueurs pour le prompt des IA."""
+        return [{'name': p.name, 'is_alive': p.is_alive} for p in self.players]
+
     def check_win_condition(self):
-        """Vérifie les conditions de victoire."""
+        """Vérifie si un camp a gagné."""
         alive = self.get_alive_players()
         wolves = sum(1 for p in alive if p.role.camp == Camp.LOUP)
         villagers = sum(1 for p in alive if p.role.camp == Camp.VILLAGEOIS)
         
         if wolves == 0:
             return Camp.VILLAGEOIS
-        elif wolves >= villagers:
+        if wolves >= villagers:
             return Camp.LOUP
         return None
 
@@ -115,21 +115,17 @@ class GameManager:
         alive = self.get_alive_players()
         self.day += 1 
         
-        # Actions des IA
-        for player in alive:
-            if not player.is_human and player.role.night_action != NightAction.NONE:
-                target_name = player.decide_night_action(alive)
-                if target_name:
-                    target = next((p for p in alive if p.name == target_name), None)
-                    if target:
-                        self.log(f"{player.name} ({player.role.name}) cible {target.name}")
+        ordered_actions = {
+            NightAction.INVESTIGATE: [],
+            NightAction.KILL: [],
+            NightAction.POTION: [],
+        }
         
-        # Ici vous ajouterez la logique d'exécution des actions
-        time.sleep(1)
-    
-    def debate_phase(self):
-        """Lance le débat."""
-        self.log("💬 Débat du jour")
+        for p in alive:
+            if p.role.night_action in ordered_actions:
+                ordered_actions[p.role.night_action].append(p)
+
+        kill_target = None
         
         # 1. Action de la Voyante (INVESTIGATE)
         for voyante in ordered_actions[NightAction.INVESTIGATE]:
@@ -161,20 +157,6 @@ class GameManager:
     def _day_phase(self):
         """Lance le cycle complet du jour : vote IA, résultat, et lynchage (si l'humain est mort)."""
         alive = self.get_alive_players()
-        for _ in range(min(5, len(alive))):  # 5 messages max
-            speaker = random.choice([p for p in alive if not p.is_human])
-            message = speaker.generate_debate_message(self._get_public_status())
-            self.log(f"{speaker.name}: {message}")
-            
-            # Diffuser aux autres
-            for listener in [p for p in alive if p != speaker and not p.is_human]:
-                listener.receive_public_message(speaker.name, message)
-            
-            time.sleep(0.5)
-    
-    def voting_phase(self, human_vote_target=None):
-        """Gère les votes."""
-        self.log("🗳️ Phase de vote")
         self.vote_counts = {}
         
         # Le vote des IA est géré ici
@@ -208,10 +190,6 @@ class GameManager:
     def _lynch_result(self, alive_players):
         """Détermine la victime du lynchage et gère l'élimination."""
         
-        return self.vote_counts
-    
-    def execute_lynching(self):
-        """Exécute le lynchage."""
         if not self.vote_counts:
             return "Personne n'a voté. Le village est confus."
 
