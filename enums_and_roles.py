@@ -1,3 +1,5 @@
+# enums_and_roles.py
+
 # -*- coding: utf-8 -*-
 from enum import Enum
 
@@ -5,7 +7,7 @@ class Camp(Enum):
     """Définit le camp du joueur pour la condition de victoire."""
     VILLAGEOIS = 'Villageois'
     LOUP = 'Loup-Garou'
-    SOLO = 'Solo'
+    SOLO = 'Solo' 
 
 class NightAction(Enum):
     """Définit l'action de nuit associée à un rôle."""
@@ -27,12 +29,10 @@ class Role:
 
 # Définition de l'ensemble des rôles (ROLES_POOL pour 10 joueurs)
 ROLES_POOL = {
-    # Loups (3)
     "Loup Garou A": Role("Loup Garou", Camp.LOUP, NightAction.KILL),
     "Loup Garou B": Role("Loup Garou", Camp.LOUP, NightAction.KILL),
     "Loup Garou C": Role("Loup Garou", Camp.LOUP, NightAction.KILL),
     
-    # Villageois (7)
     "Voyante": Role("Voyante", Camp.VILLAGEOIS, NightAction.INVESTIGATE),
     "Sorcière": Role("Sorcière", Camp.VILLAGEOIS, NightAction.POTION),
     "Chasseur": Role("Chasseur", Camp.VILLAGEOIS),
