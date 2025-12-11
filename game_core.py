@@ -58,9 +58,10 @@ class GameManager:
         self.players = [] 
         self.available_roles = list(ROLES_POOL.values())
         
+        self.human_player = None 
+        
         self._setup_players(human_player_name)
         
-        # Récupération de l'instance du joueur humain après setup
         self.human_player = next((p for p in self.players if p.is_human), None)
         
         self._distribute_roles()
@@ -72,26 +73,35 @@ class GameManager:
     # --- METHODES DE SETUP ET GETTERS ---
     
     def _setup_players(self, human_player_name):
-        """Initialise les 9 IA et le joueur humain avec des noms aléatoires."""
+        """Initialise les 9 IA avec des noms et des contextes aléatoires."""
         
-        # 1. Sélectionner 9 noms aléatoires et uniques pour les IA
-        if len(IA_NAMES_POOL) < 9:
+        CONTEXT_DIR = "context" 
+        
+        if not os.path.isdir(CONTEXT_DIR):
+             raise FileNotFoundError(f"Le dossier de contexte '{CONTEXT_DIR}' est introuvable. Créez-le et ajoutez les fichiers perso_*.txt.")
+             
+        all_perso_paths = [
+            os.path.join(CONTEXT_DIR, f) 
+            for f in os.listdir(CONTEXT_DIR) 
+            if f.endswith('.txt') and f.startswith('perso_')
+        ]
+        
+        NUM_IA = 9
+        if len(all_perso_paths) < NUM_IA:
+             raise ValueError(f"Seulement {len(all_perso_paths)} personnalités trouvées, {NUM_IA} sont nécessaires.")
+        
+        selected_perso_paths = random.sample(all_perso_paths, NUM_IA)
+        
+        if len(IA_NAMES_POOL) < NUM_IA:
              raise ValueError("Le pool de noms doit contenir au moins 9 noms uniques.")
              
-        # Assurez-vous d'utiliser un sous-ensemble unique de 9 noms
-        ia_names = random.sample(IA_NAMES_POOL, 9)
-        
-        # Le reste du setup des chemins de contexte reste inchangé
-        personality_paths = [f"context/perso_{i+1}.txt" for i in range(9)]
-        random.shuffle(personality_paths) 
+        ia_names = random.sample(IA_NAMES_POOL, NUM_IA)
         
         self.players = []
         
-        # 2. Créer les ChatAgents avec les noms aléatoires
-        for name, path in zip(ia_names, personality_paths):
+        for name, path in zip(ia_names, selected_perso_paths):
             self.players.append(ChatAgent(name=name, personality_context_path=path, is_human=False))
             
-        # 3. Ajouter le joueur humain
         self.players.append(Player(name=human_player_name, is_human=True))
 
     def _distribute_roles(self, custom_roles=None):
@@ -175,6 +185,29 @@ class GameManager:
         alive = self.get_alive_players()
         self.day += 1 
         
+        # FIX: S'il s'agit de la Nuit 1, aucune mort n'est possible
+        if self.day == 1:
+            # On laisse les actions (Voyante, Loup) se dérouler pour l'historique et la mécanique, 
+            # mais on ignore l'exécution de la mise à mort.
+            
+            # Exécution de la Voyante (INVESTIGATE) - doit rester pour donner l'info à l'IA
+            for voyante in [p for p in alive if p.role.night_action == NightAction.INVESTIGATE]:
+                if not voyante.is_human:
+                    target_name = voyante.decide_night_action(alive)
+                    target = next((p for p in alive if p.name == target_name), None)
+                    if target:
+                        voyante.history.append({
+                            "role": "system", 
+                            "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value}). Utilise cette info dans le débat."
+                        })
+            
+            # Les Loups choisissent une cible, mais elle n'est pas exécutée
+            self._recalculate_wolf_count() # Sécurité
+            return "🌙 Première nuit passée. Le village se réveille sans drame !"
+
+        
+        # --- LOGIQUE POUR NUIT 2 et suivantes ---
+        
         ordered_actions = {
             NightAction.INVESTIGATE: [],
             NightAction.KILL: [],
@@ -201,7 +234,6 @@ class GameManager:
         # 2. Action des Loups (KILL)
         wolves_acting = ordered_actions[NightAction.KILL]
         if wolves_acting:
-            # Pour l'instant, on laisse l'IA (le premier loup dans la liste) décider seule.
             if not wolves_acting[0].is_human: 
                 target_name = wolves_acting[0].decide_night_action(alive)
                 kill_target = next((p for p in alive if p.name == target_name), None)
@@ -217,9 +249,8 @@ class GameManager:
             # Vérification de la potion de vie (Sauvetage)
             if sorciere.has_life_potion:
                 
-                # Simuler la décision de sauvetage de l'IA Sorcière
+                # Logique normale pour Nuit 2+
                 if not sorciere.is_human:
-                    
                     # La Sorcière IA a 50% de chance de sauver si la cible n'est pas un Loup
                     if kill_target.role.camp != Camp.LOUP and random.random() < 0.5:
                         is_saved = True
@@ -228,16 +259,15 @@ class GameManager:
         # Exécution de l'élimination
         if kill_target and kill_target.is_alive:
             if is_saved:
-                self._recalculate_wolf_count() # Recalculer après la décision
-                # La Sorcière a utilisé sa potion de vie !
+                self._recalculate_wolf_count()
                 return f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière !"
             else:
                 # Élimination confirmée
                 kill_target.is_alive = False 
-                self._recalculate_wolf_count() # Mise à jour du compte après la mort
+                self._recalculate_wolf_count()
                 return f"❌ {kill_target.name} est mort(e) pendant la nuit. Rôle: {kill_target.role.name}."
 
-        self._recalculate_wolf_count() # Recalculer si personne n'est mort (sécurité)
+        self._recalculate_wolf_count()
         return "Nuit passée, personne n'est mort."
 
 
@@ -287,7 +317,7 @@ class GameManager:
         
         if lynch_target:
             lynch_target.is_alive = False
-            self._recalculate_wolf_count() # Mise à jour du compte après la mort
+            self._recalculate_wolf_count()
             message = f"🔥 {lynch_target.name} est lynché avec {max_votes} votes. Rôle: {lynch_target.role.name}."
             
             if lynch_target.role.name == "Chasseur":
