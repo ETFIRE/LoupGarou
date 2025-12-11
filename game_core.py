@@ -9,7 +9,7 @@ import os
 from enums_and_roles import Camp, NightAction, Role, ROLES_POOL 
 from chat_agent import ChatAgent
 
-# LISTE DE NOMS ALÉATOIRES POUR LES IA
+# LISTE DE NOMS
 IA_NAMES_POOL = [
     "Oui Capitaine !", 
     "Oggy", 
@@ -18,7 +18,7 @@ IA_NAMES_POOL = [
     "Queeny",
     "Domi",
     "Patrick",
-    "Le chelou",
+    "La cheloue",
     "?",
     "L'Ami",
 ]
@@ -36,6 +36,7 @@ class Player:
         self.has_kill_potion = False
         self.has_life_potion = False
         self.wolf_teammates = [] 
+        self.has_hunter_shot = True # NOUVEAU: Le Chasseur commence avec un tir
 
     def assign_role(self, role):
         self.role = role
@@ -117,11 +118,13 @@ class GameManager:
             role = roles_to_distribute.pop()
             player.assign_role(role)
             
-            # Initialisation des potions si Sorcière
+            # Initialisation des potions/capacités
             if role.name == "Sorcière":
                 player.has_kill_potion = True
                 player.has_life_potion = True
-                
+            elif role.name == "Chasseur":
+                player.has_hunter_shot = True # Le Chasseur reçoit son tir
+            
             if not player.is_human:
                 # Ajout du rôle au contexte interne de l'IA
                 player.history.append({
@@ -202,7 +205,7 @@ class GameManager:
                         })
             
             # Les Loups choisissent une cible, mais elle n'est pas exécutée
-            self._recalculate_wolf_count() # Sécurité
+            self._recalculate_wolf_count()
             return "🌙 Première nuit passée. Le village se réveille sans drame !"
 
         
@@ -315,13 +318,30 @@ class GameManager:
             
         lynch_target = next((p for p in alive_players if p.name == lynch_target_name), None)
         
+        hunter_eliminated_target = None
+        
         if lynch_target:
             lynch_target.is_alive = False
-            self._recalculate_wolf_count()
+            
+            # --- LOGIQUE DU CHASSEUR ---
+            if lynch_target.role.name == "Chasseur" and lynch_target.has_hunter_shot:
+                
+                # Le Chasseur tire. Il choisit une cible aléatoire parmi les survivants.
+                survivors = [p for p in self.get_alive_players() if p != lynch_target] 
+                
+                if survivors:
+                    hunter_eliminated_target = random.choice(survivors)
+                    hunter_eliminated_target.is_alive = False
+                    lynch_target.has_hunter_shot = False # Action utilisée
+                    self._recalculate_wolf_count() 
+
+            self._recalculate_wolf_count() # Mise à jour du compte après la première mort
+            
             message = f"🔥 {lynch_target.name} est lynché avec {max_votes} votes. Rôle: {lynch_target.role.name}."
             
-            if lynch_target.role.name == "Chasseur":
-                message += "\nCHASSEUR ACTIF : Tuer quelqu'un..." 
+            # Message additionnel du Chasseur
+            if hunter_eliminated_target:
+                message += f"\n🏹 CHASSEUR ACTIF : Il emporte {hunter_eliminated_target.name} (Rôle: {hunter_eliminated_target.role.name}) dans sa chute !" 
         else:
             message = "Erreur: Cible de lynchage invalide."
         

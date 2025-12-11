@@ -21,6 +21,7 @@ class Player:
         self.is_alive = True
         self.has_kill_potion = False 
         self.has_life_potion = False 
+        self.wolf_teammates = [] # Ajout pour l'accès aux coéquipiers
     def assign_role(self, role):
         self.role = role
 
@@ -32,6 +33,8 @@ class ChatAgent(Player):
     """
     
     VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct" 
+    # CONSERVATION DU MODÈLE DEMANDÉ
+    large_language_model = "llama-3.3-70b-versatile" 
     
     def __init__(self, name, personality_context_path, is_human=False):
         
@@ -43,7 +46,6 @@ class ChatAgent(Player):
         self.client = Groq(api_key=os.environ["GROQ_KEY"])
         self.personality_context_path = personality_context_path
         self.history = [] 
-        self.large_language_model = "llama-3.3-70b-versatile" 
         self.initiate_history()
 
     # --- SETUP & UTILITAIRES ---
@@ -51,7 +53,15 @@ class ChatAgent(Player):
     def initiate_history(self):
         """Initialise/réinitialise l'historique avec le contexte de personnalité."""
         personality_context = self._read_file(self.personality_context_path)
-        self.history = [{"role": "system", "content": personality_context}]
+        
+        # Consigne d'agressivité insérée dans le système
+        system_instruction = (
+            "Tu es un joueur de Loup Garou. Ton but est de manipuler la discussion. "
+            "Sois toujours actif, jamais neutre. Accuse, défends-toi, ou retourne la situation avec force. "
+            "Rends tes interventions courtes, percutantes et conformes à ta personnalité unique. "
+            "Voici ta personnalité : \n" + personality_context
+        )
+        self.history = [{"role": "system", "content": system_instruction}]
 
     @staticmethod
     def _read_file(file_path):
@@ -62,28 +72,20 @@ class ChatAgent(Player):
         except FileNotFoundError:
              return "You are a helpful and friendly assistant."
              
-    @staticmethod
-    def format_streamlit_image_to_base64(streamlit_file_object):
-        # Méthode pour la vision (omis pour la concision)
-        pass 
-
-    @staticmethod
-    def _create_vision_message(user_interaction, image_b64):
-        # Méthode pour la vision (omis pour la concision)
-        pass
+    # Les méthodes format_streamlit_image_to_base64, _create_vision_message sont omises/inutilisées
 
     # --- GESTION DE L'HISTORIQUE ---
 
     def _update_history(self, role, content):
          """Ajoute une interaction à l'historique isolé."""
          self.history.append(
-                {
-                    "role": role,
-                    "content": content,
-                })
-                
+                 {
+                     "role": role,
+                     "content": content,
+                 })
+                 
     def _normalize_history(self, history_to_normalize):
-        """Convertit les anciens messages multimodaux (listes) en messages texte (chaînes)."""
+        """Convertit les messages multimodaux (non supportés par ce modèle) en messages texte."""
         normalized_history = []
         for message in history_to_normalize:
             normalized_message = message.copy()
@@ -98,25 +100,31 @@ class ChatAgent(Player):
             
         return normalized_history
 
-    # --- MÉTHODES LLM / VISION ---
+    # --- MÉTHODES LLM ---
 
     def ask_llm(self, user_interaction):
         """Mode Texte Simple : Envoie l'interaction LLM et met à jour l'historique."""
         self._update_history(role="user", content=user_interaction)
         normalized_history = self._normalize_history(self.history)
 
-        response = self.client.chat.completions.create(
-            messages=normalized_history,
-            model=self.large_language_model 
-        ).choices[0].message.content
-        
-        self._update_history(role="assistant", content=response)
-        return response
+        try:
+            response = self.client.chat.completions.create(
+                messages=normalized_history,
+                model=self.large_language_model, 
+                temperature=0.9 # Augmenter la température pour plus d'imprévisibilité
+            ).choices[0].message.content
+            
+            self._update_history(role="assistant", content=response)
+            return response
+            
+        except Exception as e:
+            print(f"Erreur GROQ API (LLM) : {e}")
+            return f"[ERREUR LLM : Échec de la communication. {e}]"
 
 
     def ask_vision_model(self, user_interaction, image_b64):
-        """Mode Vision (non utilisé ici)"""
-        pass 
+         """Mode Vision (non implémenté pour ce jeu)"""
+         return "Vision non supportée par cette IA." 
 
     # --- INTERFACE DE JEU (LOGIQUE DE DÉCISION) ---
 
@@ -129,66 +137,103 @@ class ChatAgent(Player):
          """Fonction utilitaire pour obtenir une réponse concise (Nom de la cible ou du votant)."""
          self._update_history(role="user", content=prompt)
          normalized_history = self._normalize_history(self.history)
-         
-         response = self.client.chat.completions.create(
-             messages=normalized_history,
-             model=model,
-             max_tokens=50, 
-             temperature=0.7 
-         ).choices[0].message.content
-         
-         self._update_history(role="assistant", content=f"Décision interne: {response}")
-         return response.strip()
+          
+         try:
+             response = self.client.chat.completions.create(
+                 messages=normalized_history,
+                 model=model,
+                 max_tokens=50, 
+                 temperature=0.7 
+             ).choices[0].message.content
+             
+             self._update_history(role="assistant", content=f"Décision interne: {response}")
+             return response.strip()
+         except Exception as e:
+             print(f"Erreur GROQ API (Décision) : {e}")
+             return random.choice([p.name for p in self.get_alive_players() if p.name != self.name])
 
 
     def decide_night_action(self, alive_players):
-        """Demande au LLM de choisir une cible pour son action de nuit."""
-        if self.role.night_action == NightAction.NONE:
-            return None 
-            
-        alive_names = [p.name for p in alive_players if p.name != self.name] 
-        action_name = self.role.night_action.value
-        
-        prompt = (
-            f"La nuit est tombée. Ton rôle ({self.role.name}) te demande d'agir: {action_name}. "
-            f"Voici la liste des joueurs VIVANTS : {', '.join(alive_names)}. "
-            f"RÉPONDS UNIQUEMENT AVEC LE NOM DU JOUEUR CIBLÉ. (Ex: Alice)"
-        )
-        
-        target_name = self._prompt_llm_for_decision(prompt, self.large_language_model)
-        return target_name
+         """Demande au LLM de choisir une cible pour son action de nuit."""
+         if self.role.night_action == NightAction.NONE:
+             return None 
+             
+         alive_names = [p.name for p in alive_players if p.name != self.name] 
+         action_name = self.role.night_action.value
+         
+         prompt = (
+             f"La nuit est tombée. Ton rôle ({self.role.name}) te demande d'agir: {action_name}. "
+             "Basé sur l'historique des accusations et ta stratégie de victoire, choisis ta cible. "
+             f"Voici la liste des joueurs VIVANTS : {', '.join(alive_names)}. "
+             f"RÉPONDS UNIQUEMENT AVEC LE NOM DU JOUEUR CIBLÉ. (Ex: Alice)"
+         )
+         
+         target_name = self._prompt_llm_for_decision(prompt, self.large_language_model)
+         return target_name
 
     def decide_vote(self, public_status, debate_summary):
-        """Demande au LLM de choisir sa victime pour le lynchage de jour."""
-        alive_names = [p['name'] for p in public_status if p['is_alive'] and p['name'] != self.name]
-
-        prompt = (
-            f"C'est la phase de vote. Tu es un(e) {self.role.name}. "
-            f"RÉSUMÉ DU DÉBAT (ton historique): {debate_summary}. "
-            f"RÉPONDS UNIQUEMENT AVEC LE NOM DU JOUEUR POUR QUI TU VOTES. (Ex: Ben)"
-        )
-        
-        voted_name = self._prompt_llm_for_decision(prompt, self.large_language_model)
-        return voted_name
+         """Demande au LLM de choisir sa victime pour le lynchage de jour (Moins Docile)."""
+         alive_names = [p['name'] for p in public_status if p['is_alive'] and p['name'] != self.name]
+         
+         # --- CONSIGNES DE VOTE AGRESSIVES ---
+         if self.role.camp == Camp.LOUP:
+             vote_instruction = "Tu es Loup-Garou. Vote CONTRE le Villageois le plus dangereux ou qui t'accuse. Ne vote JAMAIS contre tes alliés."
+         else:
+             vote_instruction = "Tu es Villageois. Vote pour le joueur que tu soupçonnes le plus, en ignorant les arguments trop émotionnels. Ne t'abstient JAMAIS."
+             
+         targets_str = ", ".join(alive_names)
+         
+         prompt = (
+             f"C'est la phase de vote. Tu es un(e) {self.role.name}. {vote_instruction} "
+             f"Ton historique contient le débat. Tu dois voter pour l'un des joueurs vivants suivants : {targets_str}. "
+             "RÈGLE IMPÉRATIVE : NE RÉPONDS QU'AVEC LE NOM DU JOUEUR CHOISI. Pas de phrase, pas d'explication, juste le nom."
+         )
+         
+         voted_name = self._prompt_llm_for_decision(prompt, self.large_language_model)
+         
+         # Vérification pour s'assurer que la réponse est un nom valide (sinon vote aléatoire)
+         if voted_name and voted_name in alive_names:
+             return voted_name
+         
+         if alive_names:
+              return random.choice(alive_names)
+              
+         return None
 
     def generate_debate_message(self, current_game_status):
-        """
-        Génère un message de débat public, forçant l'IA à utiliser son historique.
-        """
-        
-        alive_names = [p['name'] for p in current_game_status if p['is_alive'] and p['name'] != self.name]
-        
-        # --- PROMPT RENFORCÉ ---
-        prompt = (
-            f"Nous sommes en phase de débat. Ton rôle est {self.role.name} ({self.role.camp.value}). "
-            f"Ton historique contient TOUS les messages publics précédents. "
-            f"ANALYSE LE TON DES DERNIÈRES INTERVENTIONS, y compris celles du joueur humain. "
-            f"Réagis en ACCUSANT quelqu'un de manière stratégique (ou en te défendant), en te basant sur le dernier message ou sur les contradictions que tu as notées. "
-            f"Joueurs vivants : {', '.join(alive_names)}. "
-            f"RÉPONDS AVEC UN MESSAGE COURT ET DIRECT (pas de 'Je pense que...')."
-        )
-        
-        # L'appel à ask_llm envoie tout l'historique (self.history)
-        debate_message = self.ask_llm(user_interaction=prompt)
-        
-        return debate_message
+         """
+         Génère un message de débat public, forçant l'IA à être active et accusatrice.
+         """
+         
+         alive_names = [p['name'] for p in current_game_status if p['is_alive'] and p['name'] != self.name]
+         
+         # Déterminer si l'IA a été accusée récemment (simplification)
+         is_accused = any(self.name in msg['content'] for msg in self.history[-5:] if msg['role'] == 'user')
+         
+         # --- PROMPT SYSTÈME D'AGRESSION ---
+         
+         if is_accused:
+             # Réponse AGRESSIVE : Défense/Contre-attaque
+             instruction = (
+                 f"On t'accuse ! Utilise ta personnalité de {self.role.name} pour TE DÉFENDRE VIRULEMMENT et CONTRE-ATTAQUER. "
+                 "Réfute l'accusation en la retournant contre ton accusateur. Ne sois pas passif. "
+             )
+         else:
+             # Réponse AGRESSIVE : Attaque obligatoire
+             instruction = (
+                 f"Nous sommes en débat. Utilise ta personnalité de {self.role.name} pour ACCUSER DIRECTEMENT QUELQU'UN. "
+                 "Cherche les contradictions, les silences ou attaque le joueur qui est le moins accusé. Ne reste JAMAIS neutre. "
+             )
+ 
+         # Instructions pour le ton et la concision (augmente l'imprévisibilité)
+         general_instruction = (
+             f"Ton rôle est {self.role.name} ({self.role.camp.value}). Consulte ton historique (TON SEUL GUIDE). "
+             f"RÉPONDS AVEC UN MESSAGE TRES COURT, PERCUTANT ET DIRECT (MAXIMUM 20 MOTS). "
+             "Ne réponds qu'avec le message lui-même."
+         )
+ 
+         prompt = instruction + general_instruction
+         
+         debate_message = self.ask_llm(user_interaction=prompt)
+         
+         return debate_message
