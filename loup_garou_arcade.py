@@ -137,7 +137,6 @@ class LoupGarouGame(arcade.Window):
 
         # 1. Initialisation du Moteur de Jeu
         self.game_manager = GameManager(human_player_name=human_name)
-        # L'instance du joueur humain est maintenant disponible via GameManager
         self.human_player = self.game_manager.human_player
         
         # 2. Variables d'Affichage et Log
@@ -156,16 +155,26 @@ class LoupGarouGame(arcade.Window):
         self.messages_generated = 0           
         self.max_messages_per_debate = 10     
         
-        # 4. INITIALISATION DU CHAT INPUT 
-        input_x = 20
-        input_y = 5 
-        input_width = SCREEN_WIDTH - 220 
-        input_height = 30
-        self.chat_input = ChatInput(input_x, input_y, input_width, input_height, self)
+        # 4. INITIALISATION DU CHAT INPUT (Déplacé à droite)
         
-        # Assignation du bouton Envoyer à ChatInput
+        # PARAMÈTRES POUR LE PANNEAU DE DROITE
+        PANEL_WIDTH = SCREEN_WIDTH // 3 
+        INPUT_HEIGHT = 30
+        
+        input_x = SCREEN_WIDTH - PANEL_WIDTH - 10 
+        input_y = 5 
+        input_width = PANEL_WIDTH - 100 # Laisser de la place pour le bouton Envoyer
+        
+        self.chat_input = ChatInput(input_x, input_y, input_width, INPUT_HEIGHT, self)
+        
+        # Assignation du bouton Envoyer à ChatInput (placé à droite de l'input box)
         self.chat_input.send_button = MenuButton(
-            input_x + input_width + 60, input_y + input_height / 2, 100, input_height, "Envoyer", None
+            input_x + input_width + 50, # x
+            input_y + INPUT_HEIGHT / 2, # y
+            90, # width
+            INPUT_HEIGHT, # height
+            "Envoyer", 
+            None
         )
         
         # Initialisation des Sprites
@@ -196,14 +205,13 @@ class LoupGarouGame(arcade.Window):
         self.log_messages.append("--- Initialisation de la Partie ---")
         self.log_messages.append(f"Ton rôle est: {self.human_player.role.name}")
         
-        # --- NOUVEAU: INFORMER LE LOUP HUMAIN DE SES COÉQUIPIERS ---
+        # --- INFORMER LE LOUP HUMAIN DE SES COÉQUIPIERS ---
         if self.human_player.role.camp == Camp.LOUP:
             if self.human_player.wolf_teammates:
                 teammates_str = ", ".join(self.human_player.wolf_teammates)
                 self.log_messages.append(f"🐺 **TU ES LOUP-GAROU** ! Tes coéquipiers sont : {teammates_str}")
             else:
                  self.log_messages.append("🐺 **TU ES LOUP-GAROU** ! Tu es le seul loup de la partie.")
-        # --- FIN NOUVEAU ---
         
         self.current_state = GameState.NIGHT_IA_ACTION
         self.log_messages.append(f"JOUR 1 : La NUIT tombe.")
@@ -246,7 +254,7 @@ class LoupGarouGame(arcade.Window):
         """Affichage : appelé à chaque image pour dessiner."""
         self.clear()
         
-        # Dessiner les joueurs et leurs noms
+        # Dessiner les joueurs
         for player in self.game_manager.players:
              sprite = self.player_map.get(player.name)
              if sprite:
@@ -265,8 +273,11 @@ class LoupGarouGame(arcade.Window):
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
 
         self.player_sprites.draw()
+        
+        # AFFICHAGE DE LA LOGIQUE (Log Gauche, Status et Input Droite)
         self.draw_log()
         self.draw_status()
+        self.draw_typing_message_right() # NOUVEL APPEL
         
         
         # Dessiner les boutons de vote
@@ -297,7 +308,6 @@ class LoupGarouGame(arcade.Window):
         
         # 3. GESTION DU VOTE
         elif self.current_state == GameState.VOTING:
-            # L'appel à _lynch_result se fait ici
             lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players()) 
             self.log_messages.append(lynch_message)
             self.current_state = GameState.RESULT
@@ -357,7 +367,6 @@ class LoupGarouGame(arcade.Window):
             if alive_ais:
                 speaker = random.choice(alive_ais)
                 
-                # NOTE: Utilisation correcte de _get_public_status() de GameManager
                 debate_message = speaker.generate_debate_message(self.game_manager._get_public_status())
                 
                 self.current_speaker = speaker
@@ -380,7 +389,9 @@ class LoupGarouGame(arcade.Window):
         
         voting_targets = [p for p in alive if p != self.human_player]
         
-        start_x = SCREEN_WIDTH / 2 - (len(voting_targets) * (button_width + 10) / 2) + 50
+        # Les boutons restent centrés au milieu de l'écran (hors zone de log)
+        CENTER_X = SCREEN_WIDTH / 2 
+        start_x = CENTER_X - (len(voting_targets) * (button_width + 10) / 2)
         
         for i, target in enumerate(voting_targets):
             x = start_x + (i * (button_width + 10))
@@ -413,7 +424,9 @@ class LoupGarouGame(arcade.Window):
         # 2. Paramètres de police robustes
         x_pos = LOG_X_START + 10
         y_pos = SCREEN_HEIGHT - 30 
-        line_spacing = 30 # ESPACEMENT SÛR 
+        
+        # NOUVEL ESPACEMENT MAXIMAL : 70px pour une sécurité totale contre la superposition
+        line_spacing = 70 # CHANGÉ: Augmenté pour la sécurité maximale
         font_size = 14 
         
         # Titre
@@ -449,17 +462,51 @@ class LoupGarouGame(arcade.Window):
                 width=LOG_WIDTH - 20,
                 multiline=True
             )
-            y_pos -= line_spacing 
+            y_pos -= line_spacing # Assure le décalage, même pour les messages courts 
             
     def draw_status(self):
+        """Dessine les compteurs (Loups, Timer) à DROITE, en haut."""
+        
+        PANEL_WIDTH = SCREEN_WIDTH // 3
+        RIGHT_PANEL_START_X = SCREEN_WIDTH - PANEL_WIDTH
+        
+        # Loups
         arcade.draw_text(
             f"Loups Vivants : {self.game_manager.wolves_alive}",
-            SCREEN_WIDTH - 200, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16
+            RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16
         )
+        
+        # Timer
         if self.current_state in [GameState.DEBATE, GameState.VOTING, GameState.HUMAN_ACTION]:
              arcade.draw_text(
                 f"Temps Restant : {int(self.debate_timer)}s",
-                SCREEN_WIDTH - 200, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
+                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
+            )
+
+    def draw_typing_message_right(self):
+        """Dessine le message en cours de frappe de l'IA (zone de 'chat actif') à DROITE."""
+        
+        if self.current_speaker and self.current_message_display != self.current_message_full:
+            PANEL_WIDTH = SCREEN_WIDTH // 3
+            RIGHT_PANEL_START_X = SCREEN_WIDTH - PANEL_WIDTH
+            
+            # Afficher la bulle "IA tape..."
+            arcade.draw_text(
+                f"💬 {self.current_speaker.name} tape...",
+                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 100, arcade.color.AZURE, 16, anchor_x="left"
+            )
+            
+            cursor = ("|" if int(time.time() * 2) % 2 == 0 else "")
+            
+            # Afficher le texte tapé en dessous
+            arcade.draw_text(
+                f"{self.current_message_display}{cursor}",
+                RIGHT_PANEL_START_X + 20, 
+                SCREEN_HEIGHT - 130, 
+                arcade.color.LIGHT_GRAY, 
+                14, 
+                width=PANEL_WIDTH - 40,
+                multiline=True
             )
 
 
