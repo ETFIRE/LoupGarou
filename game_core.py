@@ -9,6 +9,21 @@ import os
 from enums_and_roles import Camp, NightAction, Role, ROLES_POOL 
 from chat_agent import ChatAgent
 
+# LISTE DE NOMS ALÉATOIRES POUR LES IA
+IA_NAMES_POOL = [
+    "Oui Capitaine !", 
+    "Oggy", 
+    "Zinzin",
+    "Gertrude",
+    "Queeny",
+    "Domi",
+    "Patrick",
+    "Le chelou",
+    "?",
+    "L'Ami",
+]
+
+
 # --- CLASSE PLAYER (NON IA) ---
 
 class Player:
@@ -50,7 +65,6 @@ class GameManager:
         
         self._distribute_roles()
         
-        # Initialisation du compte (sera recalculé après les morts)
         self._recalculate_wolf_count() 
         self.vote_counts = {} 
 
@@ -58,15 +72,26 @@ class GameManager:
     # --- METHODES DE SETUP ET GETTERS ---
     
     def _setup_players(self, human_player_name):
-        """Initialise les 9 IA et le joueur humain."""
-        ia_names = [f"IA {i+1}" for i in range(9)]
+        """Initialise les 9 IA et le joueur humain avec des noms aléatoires."""
+        
+        # 1. Sélectionner 9 noms aléatoires et uniques pour les IA
+        if len(IA_NAMES_POOL) < 9:
+             raise ValueError("Le pool de noms doit contenir au moins 9 noms uniques.")
+             
+        # Assurez-vous d'utiliser un sous-ensemble unique de 9 noms
+        ia_names = random.sample(IA_NAMES_POOL, 9)
+        
+        # Le reste du setup des chemins de contexte reste inchangé
         personality_paths = [f"context/perso_{i+1}.txt" for i in range(9)]
         random.shuffle(personality_paths) 
         
         self.players = []
+        
+        # 2. Créer les ChatAgents avec les noms aléatoires
         for name, path in zip(ia_names, personality_paths):
             self.players.append(ChatAgent(name=name, personality_context_path=path, is_human=False))
             
+        # 3. Ajouter le joueur humain
         self.players.append(Player(name=human_player_name, is_human=True))
 
     def _distribute_roles(self, custom_roles=None):
@@ -94,7 +119,7 @@ class GameManager:
                     "content": f"TON RÔLE ACTUEL DANS LA PARTIE EST: {role.name}. Tu es dans le camp des {role.camp.value}."
                 })
         
-        # --- LOGIQUE AMÉLIORÉE : INFORMER TOUS LES LOUPS ---
+        # --- LOGIQUE : INFORMER TOUS LES LOUPS ---
         
         # 2. Identification de TOUS les Loups (après que tous les rôles soient assignés)
         all_wolves = [p for p in self.players if p.role.camp == Camp.LOUP]
@@ -209,7 +234,7 @@ class GameManager:
             else:
                 # Élimination confirmée
                 kill_target.is_alive = False 
-                self._recalculate_wolf_count() # <-- FIX : Mise à jour du compte après la mort
+                self._recalculate_wolf_count() # Mise à jour du compte après la mort
                 return f"❌ {kill_target.name} est mort(e) pendant la nuit. Rôle: {kill_target.role.name}."
 
         self._recalculate_wolf_count() # Recalculer si personne n'est mort (sécurité)
@@ -262,7 +287,7 @@ class GameManager:
         
         if lynch_target:
             lynch_target.is_alive = False
-            self._recalculate_wolf_count() # <-- FIX : Mise à jour du compte après la mort
+            self._recalculate_wolf_count() # Mise à jour du compte après la mort
             message = f"🔥 {lynch_target.name} est lynché avec {max_votes} votes. Rôle: {lynch_target.role.name}."
             
             if lynch_target.role.name == "Chasseur":

@@ -435,7 +435,7 @@ class LoupGarouGame(arcade.Window):
     # --- MÉTHODES D'AFFICHAGE (SANS UNDERSCORE) ---
     
     def draw_log(self):
-        """Dessine le Journal de Bord (Historique Permanent UNIQUEMENT) à GAUCHE."""
+        # --- LOGIQUE DE DESSIN DU LOG AMÉLIORÉE (CORRECTIF FINAL VISUEL) ---
         LOG_X_START = 10
         LOG_WIDTH = SCREEN_WIDTH // 3 
         LOG_HEIGHT = SCREEN_HEIGHT - 40 
@@ -452,7 +452,9 @@ class LoupGarouGame(arcade.Window):
         # 2. Paramètres de police robustes
         x_pos = LOG_X_START + 10
         y_pos = SCREEN_HEIGHT - 30 
-        line_spacing = 70 # ESPACEMENT SÛR 
+        
+        # NOUVEL ESPACEMENT MAXIMAL : 85px pour une sécurité totale contre la superposition
+        line_spacing = 85 # CHANGÉ: 70 -> 85 pour les messages multilignes
         font_size = 14 
         
         # Titre
@@ -473,7 +475,7 @@ class LoupGarouGame(arcade.Window):
                 width=LOG_WIDTH - 20,
                 multiline=True
             )
-            y_pos -= line_spacing 
+            y_pos -= line_spacing # Assure le décalage de 85px 
             
     def draw_status(self):
         """Dessine les compteurs (Loups, Timer) à DROITE, en haut."""
