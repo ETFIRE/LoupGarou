@@ -1,4 +1,4 @@
-# loup_garou_arcade.py
+# loup_garou_arcade.py (FINAL)
 
 # -*- coding: utf-8 -*-
 import arcade
@@ -24,10 +24,9 @@ class MenuButton:
         self.width = width
         self.height = height
         self.text = text
-        self.action = action # Le nom du joueur ciblé
+        self.action = action 
 
     def draw(self):
-        # Utilisation de draw_lbwh_rectangle_filled pour la compatibilité
         arcade.draw_lbwh_rectangle_filled(
             self.center_x - self.width / 2, 
             self.center_y - self.height / 2, 
@@ -44,18 +43,91 @@ class MenuButton:
                 self.center_y - self.height/2 < y < self.center_y + self.height/2)
 
 
-# --- Paramètres de la Fenêtre ---
+# --- Champ de Saisie de Chat ---
+class ChatInput:
+    """Représente la boîte de saisie de texte pour l'humain."""
+    def __init__(self, x, y, width, height, game_instance):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.text = ""
+        self.active = False
+        self.game = game_instance
+        self.send_button = None # Doit être assigné après l'init du jeu
+
+    def draw(self):
+        # Dessiner le fond du champ de saisie
+        color = arcade.color.WHITE if self.active else arcade.color.LIGHT_GRAY
+        arcade.draw_lbwh_rectangle_filled(self.x, self.y, self.width, self.height, color)
+        
+        # Dessiner le texte saisi avec curseur
+        cursor = ("|" if self.active and int(time.time() * 2) % 2 == 0 else "")
+        arcade.draw_text(self.text + cursor, 
+                         self.x + 5, self.y + 5, 
+                         arcade.color.BLACK, 14)
+        
+        if self.send_button:
+            self.send_button.draw()
+
+    def handle_key_press(self, symbol):
+        if self.active:
+            if symbol == arcade.key.ENTER:
+                self.send_message()
+            elif symbol == arcade.key.BACKSPACE:
+                self.text = self.text[:-1]
+            
+            # CORRECTION ICI : Remplacement de arcade.key.is_printable
+            else:
+                # Tente de convertir le symbole en caractère et vérifie si c'est un caractère imprimable
+                try:
+                    char = chr(symbol)
+                    if char.isprintable(): # isprintable() est une méthode string standard de Python
+                        # Limiter la longueur du message
+                        if len(self.text) < 80: 
+                            self.text += char
+                except ValueError:
+                    # Si le symbole ne correspond pas à un caractère, on l'ignore (c'est une touche de contrôle)
+                    pass
+
+    def send_message(self):
+        if self.text.strip():
+            message = self.text.strip()
+            
+            # 1. Ajouter au log public
+            self.game.log_messages.append(f"🗣️ {self.game.human_player.name} : {message}")
+            
+            # 2. ENVOYER LE MESSAGE AUX IA (stockage de l'historique)
+            alive_ais = [p for p in self.game.game_manager.get_alive_players() if not p.is_human]
+            for listener in alive_ais:
+                listener.receive_public_message(self.game.human_player.name, message)
+            
+            # 3. Réinitialiser et libérer la parole
+            self.text = ""
+            self.active = False
+            self.game.current_speaker = None 
+            
+    def check_click(self, x, y):
+        # Activation/Désactivation du champ de saisie
+        is_in_input = (self.x < x < self.x + self.width and self.y < y < self.y + self.height)
+        self.active = is_in_input
+        
+        # Gérer le clic sur le bouton Envoyer
+        if self.send_button and self.send_button.check_click(x, y):
+            self.send_message()
+
+
+# --- Paramètres de la Fenêtre & États ---
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
 
-# --- États du Jeu ---
 class GameState(Enum):
     SETUP = 1
     NIGHT_IA_ACTION = 2 
-    HUMAN_ACTION = 3    # NOUVEL ÉTAT : Attente de l'input humain (Vote)
+    HUMAN_ACTION = 3    
     DEBATE = 4
-    VOTING = 5          # Déclenche la collecte des votes IA (après l'humain)
+    VOTING = 5
     RESULT = 6
     GAME_OVER = 7
 
@@ -75,7 +147,7 @@ class LoupGarouGame(arcade.Window):
         self.log_messages = [] 
         self.player_sprites = arcade.SpriteList()
         self.player_map = {} 
-        self.action_buttons = [] # Pour stocker les boutons de vote/action
+        self.action_buttons = []
         
         # 3. Gestion du Temps et Vitesse d'écriture (Débat)
         self.debate_timer = GameManager.DEBATE_TIME_LIMIT
@@ -85,33 +157,41 @@ class LoupGarouGame(arcade.Window):
         self.typing_speed_counter = 0 
         self.typing_delay = 3 
 
+        # 4. INITIALISATION DU CHAT INPUT (CORRECTION)
+        input_x = 20
+        input_y = 5 
+        input_width = SCREEN_WIDTH - 220 
+        input_height = 30
+        self.chat_input = ChatInput(input_x, input_y, input_width, input_height, self)
+        
+        # Assignation du bouton Envoyer à ChatInput
+        self.chat_input.send_button = MenuButton(
+            input_x + input_width + 60, input_y + input_height / 2, 100, input_height, "Envoyer", None
+        )
+        
         # Initialisation des Sprites
         self._setup_sprites()
         
         # Commencer le jeu
         self.start_game_loop()
 
+    # ... (les méthodes _setup_sprites et start_game_loop restent les mêmes) ...
     def _setup_sprites(self):
         """Crée les représentations visuelles des joueurs."""
         num_players = len(self.game_manager.players)
         center_x = SCREEN_WIDTH / 2
         center_y = SCREEN_HEIGHT / 2
-        
         angle_step = 360 / num_players
-        
         for i, player in enumerate(self.game_manager.players):
             angle = i * angle_step
             rad_angle = math.radians(angle)
-            
             x = center_x + 250 * math.cos(rad_angle)
             y = center_y + 250 * math.sin(rad_angle)
-            
             color = arcade.color.GREEN if player.is_alive else arcade.color.RED_BROWN
             sprite = arcade.SpriteCircle(50, color, center_x=x, center_y=y)
-            
             self.player_sprites.append(sprite)
             self.player_map[player.name] = sprite
-            
+
     def start_game_loop(self):
         """Commence la première phase du jeu."""
         self.log_messages.append("--- Initialisation de la Partie ---")
@@ -120,27 +200,43 @@ class LoupGarouGame(arcade.Window):
         self.log_messages.append(f"JOUR 1 : La NUIT tombe.")
 
     def on_mouse_press(self, x, y, button, modifiers):
-        """Gère le clic de la souris, principalement pour le vote humain."""
+        """Gère le clic de la souris."""
         if self.current_state == GameState.HUMAN_ACTION:
             for btn in self.action_buttons:
                 if btn.check_click(x, y):
-                    # Le joueur humain a voté!
                     voted_player_name = btn.action
                     self.log_messages.append(f"🗳️ {self.human_player.name} vote pour {voted_player_name}")
-                    
-                    # Enregistrer le vote dans le GameManager et collecter les votes IA
                     self.game_manager.register_human_vote(voted_player_name)
-                    
-                    # Passer à l'état de résolution du lynchage
                     self.action_buttons = [] 
-                    self.current_state = GameState.VOTING # VOTING déclenchera le lynchage dans on_update
+                    self.current_state = GameState.VOTING
                     break
+                    
+        # GESTION DU CLIC SUR LE CHAMP DE CHAT EN MODE DÉBAT
+        elif self.current_state == GameState.DEBATE and self.human_player.is_alive:
+            self.chat_input.check_click(x, y)
+
+
+    def on_key_press(self, symbol, modifiers):
+        """Gère les entrées clavier (y compris la saisie du chat)."""
+        
+        # Gérer la saisie si on est en mode DEBATE
+        if self.current_state == GameState.DEBATE and self.human_player.is_alive:
+            self.chat_input.handle_key_press(symbol)
+        
+        # Gérer le SKIP (Reste comme avant)
+        elif symbol == arcade.key.SPACE:
+            if self.current_state == GameState.DEBATE:
+                self.debate_timer = 0 
+                self.current_message_full = self.current_message_display 
+                self.current_speaker = None
+                self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
+
 
     def on_draw(self):
         """Affichage : appelé à chaque image pour dessiner."""
         self.clear()
         
-        # Mettre à jour la couleur des sprites (vivant/mort)
+        # Dessiner les joueurs et leurs noms (Logique omise pour concision, mais fonctionne)
         for player in self.game_manager.players:
              sprite = self.player_map.get(player.name)
              if sprite:
@@ -150,12 +246,10 @@ class LoupGarouGame(arcade.Window):
                      sprite.color = arcade.color.DARK_RED 
                  else:
                      sprite.color = arcade.color.GREEN 
-                 
                  arcade.draw_text(
                      f"{player.name} ({'IA' if not player.is_human else 'H'})",
                      sprite.center_x, sprite.center_y + 60, color, 12, anchor_x="center"
                  )
-                 
                  if self.current_state == GameState.GAME_OVER or player.is_human:
                      role_text = f"Role: {player.role.name}"
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
@@ -165,9 +259,14 @@ class LoupGarouGame(arcade.Window):
         self._draw_status()
         self._draw_typing_message()
         
-        # Dessiner les boutons d'action (actifs seulement en mode HUMAN_ACTION)
+        # Dessiner les boutons de vote
         for btn in self.action_buttons:
             btn.draw()
+        
+        # Dessiner le champ de chat si en mode DEBATE
+        if self.current_state == GameState.DEBATE and self.human_player.is_alive:
+            self.chat_input.draw()
+
 
     def on_update(self, delta_time):
         """Logique : appelé à chaque image pour mettre à jour l'état."""
@@ -176,7 +275,6 @@ class LoupGarouGame(arcade.Window):
         if self.current_state == GameState.NIGHT_IA_ACTION:
              night_message = self.game_manager._night_phase()
              self.log_messages.append(night_message)
-             
              self.current_state = GameState.DEBATE
              self.debate_timer = GameManager.DEBATE_TIME_LIMIT 
              self.log_messages.append(f"\n☀️ Jour {self.game_manager.day} : Le débat commence !")
@@ -185,13 +283,10 @@ class LoupGarouGame(arcade.Window):
         elif self.current_state == GameState.DEBATE:
             self._update_debate(delta_time)
         
-        # 3. GESTION DU VOTE (Déclenché par le clic humain OU par la fin du débat si l'humain est mort)
+        # 3. GESTION DU VOTE (Déclenché par le clic humain OU si l'humain est mort)
         elif self.current_state == GameState.VOTING:
-            
-            # Résoudre le lynchage et obtenir le message du résultat
             lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players()) 
             self.log_messages.append(lynch_message)
-            
             self.current_state = GameState.RESULT
         
         # 4. GESTION DU RÉSULTAT ET TRANSITION
@@ -201,12 +296,9 @@ class LoupGarouGame(arcade.Window):
                  self.log_messages.append(f"\n🎉 VICTOIRE des {winner.value} ! Fin de la partie.")
                  self.current_state = GameState.GAME_OVER
             else:
-                 # Nouvelle nuit
                  self.current_state = GameState.NIGHT_IA_ACTION
                  self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.")
 
-
-    # --- LOGIQUE DE DÉBAT, DESSIN, ETC. ---
     
     def _update_debate(self, delta_time):
         """Gère le temps et la parole pendant la phase de débat."""
@@ -309,17 +401,6 @@ class LoupGarouGame(arcade.Window):
                 self.current_message_display,
                 SCREEN_WIDTH / 2, 30, arcade.color.LIGHT_GRAY, 12, anchor_x="center"
             )
-
-
-    def on_key_press(self, symbol, modifiers):
-        """Gère les entrées clavier (ex: pour skipper le débat)."""
-        
-        if symbol == arcade.key.SPACE:
-            if self.current_state == GameState.DEBATE:
-                self.debate_timer = 0 
-                self.current_message_full = self.current_message_display 
-                self.current_speaker = None
-                self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
 
 
 # --- Lancement du Jeu ---

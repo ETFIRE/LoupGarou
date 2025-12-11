@@ -1,4 +1,4 @@
-# game_core.py
+# game_core.py (VERSION CORRIGÉE)
 
 # -*- coding: utf-8 -*-
 import random
@@ -34,7 +34,7 @@ class Player:
 class GameManager:
     """Gère le déroulement et la logique du jeu."""
     
-    DEBATE_TIME_LIMIT = 20 # 3 minutes en secondes
+    DEBATE_TIME_LIMIT = 20 
     
     def __init__(self, human_player_name="Humain_Lucie"):
         
@@ -61,6 +61,7 @@ class GameManager:
         for name, path in zip(ia_names, personality_paths):
             self.players.append(ChatAgent(name=name, personality_context_path=path, is_human=False))
             
+        # NOTE: Le ChatAgent hérite de Player, donc on peut utiliser Player ici
         self.players.append(Player(name=human_player_name, is_human=True))
 
     def _distribute_roles(self, custom_roles=None):
@@ -85,7 +86,6 @@ class GameManager:
                     "role": "system",
                     "content": f"TON RÔLE ACTUEL DANS LA PARTIE EST: {role.name}. Tu es dans le camp des {role.camp.value}."
                 })
-            # print(f"Rôle assigné à {player.name}: {player.role.name}")
             
     def get_alive_players(self):
         """Retourne la liste des joueurs vivants."""
@@ -107,19 +107,13 @@ class GameManager:
             return Camp.LOUP
         return None
 
-    # --- NOUVELLE LOGIQUE DE JEU (CYCLES) ---
-
-    def start_game(self):
-        """Lance le cycle de jeu principal (appelé par Arcade mais ne boucle pas)."""
-        pass # La boucle est gérée par Arcade on_update
-
     # --- Phase de Nuit ---
 
     def _night_phase(self):
         """Orchestre les actions secrètes des joueurs (Voyante, Loup, Sorcière...)."""
         
         alive = self.get_alive_players()
-        self.day += 1 # Le jour commence après la nuit précédente
+        self.day += 1 
         
         ordered_actions = {
             NightAction.INVESTIGATE: [],
@@ -150,10 +144,7 @@ class GameManager:
             if not wolves_acting[0].is_human:
                 target_name = wolves_acting[0].decide_night_action(alive)
                 kill_target = next((p for p in alive if p.name == target_name), None)
-
-        # 3. Action de la Sorcière (POTION)
-        # Logique Sorcière non implémentée
-            
+        
         # Exécution de l'élimination
         if kill_target and kill_target.is_alive:
             kill_target.is_alive = False
@@ -161,14 +152,12 @@ class GameManager:
         return "Nuit passée, personne n'est mort."
 
 
-    # --- Phase de Jour (Débat et Vote) ---
+    # --- Phase de Jour (Vote) ---
 
     def _day_phase(self):
-        """Lance le cycle complet du jour : vote IA, résultat, et lynchage."""
+        """Lance le cycle complet du jour : vote IA, résultat, et lynchage (si l'humain est mort)."""
         alive = self.get_alive_players()
         self.vote_counts = {}
-        
-        # Le débat est géré par Arcade
         
         # Le vote des IA est géré ici
         self._voting_phase_ia_only() 
@@ -181,22 +170,22 @@ class GameManager:
         """Enregistre le vote du joueur humain pour le lynchage."""
         self.vote_counts[voted_player_name] = self.vote_counts.get(voted_player_name, 0) + 1
         
-        # Après le vote humain, on doit demander aux IA restantes de voter
+        # Après le vote humain, on demande aux IA restantes de voter
         self._voting_phase_ia_only() 
 
     def _voting_phase_ia_only(self):
-        """Collecte les votes des IA après que l'humain ait voté."""
+        """Collecte les votes des IA (déclenché par la fin du débat ou par le vote humain)."""
         alive_players = self.get_alive_players()
         
         # La logique de vote de l'IA doit être déclenchée ici
         for voter in alive_players:
             if not voter.is_human and voter.is_alive:
+                # L'IA utilise l'historique mis à jour (qui inclut le chat humain) pour décider
                 voted_name = voter.decide_vote(self._get_public_status(), debate_summary="Récapitulatif des accusations...")
                 
-                # Enregistrer le vote dans le vote_counts
+                # Enregistrer le vote
                 if voted_name in [p.name for p in alive_players]:
                      self.vote_counts[voted_name] = self.vote_counts.get(voted_name, 0) + 1
-                # Pas de log de vote ici, tout passe par Arcade
 
     def _lynch_result(self, alive_players):
         """Détermine la victime du lynchage et gère l'élimination."""
@@ -209,7 +198,7 @@ class GameManager:
         
         if list(self.vote_counts.values()).count(max_votes) > 1:
             self.vote_counts = {}
-            return "⚖️ Égalité des votes ! Personne n'est lynché."
+            return f"⚖️ Égalité des votes ! Personne n'est lynché (Max votes: {max_votes})."
             
         lynch_target = next((p for p in alive_players if p.name == lynch_target_name), None)
         
