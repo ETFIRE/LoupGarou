@@ -13,9 +13,6 @@ from enum import Enum
 from enums_and_roles import Camp, NightAction, Role 
 
 # --- Dépendance de Player (mockée pour éviter la boucle d'importation) ---
-# NOTE: Cette classe est dupliquée ici ET dans game_core.py. 
-# Si tu l'enlèves d'ici, tu auras besoin d'importer Player depuis game_core, ce qui crée une boucle.
-# Nous la gardons donc ici pour la simplicité de la dépendance.
 class Player:
     def __init__(self, name, is_human=False):
         self.name = name
@@ -27,7 +24,6 @@ class Player:
     def assign_role(self, role):
         self.role = role
 
-
 # --------------------------------------------------------
 
 class ChatAgent(Player):
@@ -35,13 +31,12 @@ class ChatAgent(Player):
     Représente un joueur IA. Gère l'historique isolé, la personnalité et l'API LLM.
     """
     
-    VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct" # Modèle multimodal
+    VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct" 
     
     def __init__(self, name, personality_context_path, is_human=False):
         
         super().__init__(name, is_human)
         
-        # NOTE: load_dotenv() est appelé dans loup_garou_arcade.py
         if "GROQ_KEY" not in os.environ:
              raise EnvironmentError("GROQ_KEY non trouvée. Assurez-vous d'avoir un fichier .env.")
              
@@ -51,14 +46,13 @@ class ChatAgent(Player):
         self.large_language_model = "llama-3.3-70b-versatile" 
         self.initiate_history()
 
+    # --- SETUP & UTILITAIRES ---
 
     def initiate_history(self):
         """Initialise/réinitialise l'historique avec le contexte de personnalité."""
         personality_context = self._read_file(self.personality_context_path)
         self.history = [{"role": "system", "content": personality_context}]
 
-    # --- Méthodes Statiques Utilitaires ---
-    
     @staticmethod
     def _read_file(file_path):
         """Lit un fichier avec encodage UTF-8."""
@@ -67,18 +61,18 @@ class ChatAgent(Player):
                 return file.read()
         except FileNotFoundError:
              return "You are a helpful and friendly assistant."
-
+             
     @staticmethod
     def format_streamlit_image_to_base64(streamlit_file_object):
-        """Méthode pour la vision (non utilisée dans ce contexte Loup Garou)."""
-        # Code de conversion Base64 omis pour la concision
+        # Méthode pour la vision (omis pour la concision)
+        pass 
 
     @staticmethod
     def _create_vision_message(user_interaction, image_b64):
-        # Code de création du message vision omis
+        # Méthode pour la vision (omis pour la concision)
         pass
 
-    # --- Gestion de l'Historique ---
+    # --- GESTION DE L'HISTORIQUE ---
 
     def _update_history(self, role, content):
          """Ajoute une interaction à l'historique isolé."""
@@ -104,7 +98,7 @@ class ChatAgent(Player):
             
         return normalized_history
 
-    # --- Méthodes LLM / Vision (Logique API) ---
+    # --- MÉTHODES LLM / VISION ---
 
     def ask_llm(self, user_interaction):
         """Mode Texte Simple : Envoie l'interaction LLM et met à jour l'historique."""
@@ -121,10 +115,10 @@ class ChatAgent(Player):
 
 
     def ask_vision_model(self, user_interaction, image_b64):
-        """Mode Vision : Envoie l'interaction multimodale (Non essentiel ici)."""
-        # Code omis pour la concision.
+        """Mode Vision (non utilisé ici)"""
+        pass 
 
-    # --- INTERFACE DE JEU (DECISION LOGIC) ---
+    # --- INTERFACE DE JEU (LOGIQUE DE DÉCISION) ---
 
     def receive_public_message(self, sender_name, message):
          """Enregistre un message public du débat dans l'historique de l'IA."""

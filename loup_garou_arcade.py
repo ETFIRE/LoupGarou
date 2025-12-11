@@ -1,31 +1,131 @@
+# loup_garou_arcade.py
+
 # -*- coding: utf-8 -*-
 import arcade
 import random
 import time
-from enum import Enum # Garder Enum pour GameState
+from enum import Enum 
 import math
 
-# --- Importations du projet ---
-from game_core import GameManager, Player # N'importe plus Camp ou NightAction de game_core
-from enums_and_roles import Camp, NightAction # Les vrais emplacements des Enums
-# ChatAgent n'est plus nécessaire ici car il est instancié dans GameManager
-
+# IMPORTATION ET CHARGEMENT FORCÉ DE L'ENVIRONNEMENT
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv() 
 
-# --- Paramètres de la Fenêtre ---
+# Importation de vos classes de jeu
+from game_core import GameManager, Player 
+from enums_and_roles import Camp, NightAction 
+
+# --- Bouton Interactif ---
+class MenuButton:
+    """Classe pour dessiner et gérer les boutons de vote/action."""
+    def __init__(self, center_x, center_y, width, height, text, action):
+        self.center_x = center_x
+        self.center_y = center_y
+        self.width = width
+        self.height = height
+        self.text = text
+        self.action = action 
+
+    def draw(self):
+        arcade.draw_lbwh_rectangle_filled(
+            self.center_x - self.width / 2, 
+            self.center_y - self.height / 2, 
+            self.width, 
+            self.height, 
+            arcade.color.RED_DEVIL if self.text.startswith("Voter") else arcade.color.DARK_GREEN
+        )
+        arcade.draw_text(self.text, self.center_x, self.center_y,
+                         arcade.color.WHITE, 12, anchor_x="center", anchor_y="center")
+
+    def check_click(self, x, y):
+        """Vérifie si les coordonnées de la souris sont dans le bouton."""
+        return (self.center_x - self.width/2 < x < self.center_x + self.width/2 and
+                self.center_y - self.height/2 < y < self.center_y + self.height/2)
+
+
+# --- Champ de Saisie de Chat ---
+class ChatInput:
+    """Représente la boîte de saisie de texte pour l'humain."""
+    def __init__(self, x, y, width, height, game_instance):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.text = ""
+        self.active = False
+        self.game = game_instance
+        self.send_button = None 
+
+    def draw(self):
+        # Dessiner le fond du champ de saisie
+        color = arcade.color.WHITE if self.active else arcade.color.LIGHT_GRAY
+        arcade.draw_lbwh_rectangle_filled(self.x, self.y, self.width, self.height, color)
+        
+        # Dessiner le texte saisi avec curseur
+        cursor = ("|" if self.active and int(time.time() * 2) % 2 == 0 else "")
+        arcade.draw_text(self.text + cursor, 
+                         self.x + 5, self.y + 5, 
+                         arcade.color.BLACK, 14)
+        
+        if self.send_button:
+            self.send_button.draw()
+
+    def handle_key_press(self, symbol):
+        if self.active:
+            if symbol == arcade.key.ENTER:
+                self.send_message()
+            elif symbol == arcade.key.BACKSPACE:
+                self.text = self.text[:-1]
+            else:
+                try:
+                    char = chr(symbol)
+                    if char.isprintable(): 
+                        if len(self.text) < 80: 
+                            self.text += char
+                except ValueError:
+                    pass
+            
+    def send_message(self):
+        if self.text.strip():
+            message = self.text.strip()
+            
+            # 1. Ajouter au log public
+            self.game.log_messages.append(f"🗣️ {self.game.human_player.name} : {message}")
+            
+            # 2. ENVOYER LE MESSAGE AUX IA (stockage de l'historique)
+            alive_ais = [p for p in self.game.game_manager.get_alive_players() if not p.is_human]
+            for listener in alive_ais:
+                listener.receive_public_message(self.game.human_player.name, message)
+            
+            # 3. Réinitialiser et maintenir l'activation
+            self.text = ""
+            self.game.current_speaker = None # Permet aux IA de réagir
+            
+    def check_click(self, x, y):
+        # Activation/Désactivation du champ de saisie
+        is_in_input = (self.x < x < self.x + self.width and self.y < y < self.y + self.height)
+        
+        # Si le clic est sur le bouton Envoyer, on ne désactive pas, mais on envoie
+        if self.send_button and self.send_button.check_click(x, y):
+             self.send_message()
+        else:
+            # Sinon, on active si on est sur la zone, on désactive sinon
+            self.active = is_in_input
+
+
+# --- Paramètres de la Fenêtre & États ---
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
 
-# --- États du Jeu ---
 class GameState(Enum):
     SETUP = 1
-    NIGHT = 2
-    DEBATE = 3
-    VOTING = 4
-    RESULT = 5
-    GAME_OVER = 6
+    NIGHT_IA_ACTION = 2 
+    HUMAN_ACTION = 3    
+    DEBATE = 4
+    VOTING = 5
+    RESULT = 6
+    GAME_OVER = 7
 
 
 class LoupGarouGame(arcade.Window):
@@ -37,151 +137,301 @@ class LoupGarouGame(arcade.Window):
 
         # 1. Initialisation du Moteur de Jeu
         self.game_manager = GameManager(human_player_name=human_name)
-        self.current_state = GameState.SETUP
+        self.human_player = next((p for p in self.game_manager.players if p.is_human), None)
         
-        # 2. Variables d'Affichage
-        self.log_messages = [] # Pour stocker les messages du débat et les actions
+        # 2. Variables d'Affichage et Log
+        self.log_messages = [] 
         self.player_sprites = arcade.SpriteList()
-        self.player_map = {} # Pour lier le joueur au sprite (utile plus tard)
+        self.player_map = {} 
+        self.action_buttons = []
         
         # 3. Gestion du Temps et Vitesse d'écriture (Débat)
-        self.debate_timer = GameManager.DEBATE_TIME_LIMIT
+        # NOUVEAU: On augmente le temps de débat pour garantir plusieurs tours de parole
+        self.debate_timer = 60 # CHANGÉ: 20 -> 60s
         self.current_speaker = None
         self.current_message_full = ""
         self.current_message_display = ""
-        self.typing_speed_counter = 0 # Pour simuler la vitesse d'écriture
-        self.typing_delay = 3 # Afficher 1 caractère toutes les 3 frames (à ajuster)
-
-        # Initialisation des Sprites (simple cercle pour l'instant)
+        self.typing_speed_counter = 0 
+        # NOUVEAU: On accélère la vitesse de frappe (1 = presque instantané)
+        self.typing_delay = 1 # CHANGÉ: 3 -> 1
+        self.messages_generated = 0           
+        self.max_messages_per_debate = 10     
+        
+        # 4. INITIALISATION DU CHAT INPUT 
+        input_x = 20
+        input_y = 5 
+        input_width = SCREEN_WIDTH - 220 
+        input_height = 30
+        self.chat_input = ChatInput(input_x, input_y, input_width, input_height, self)
+        
+        # Assignation du bouton Envoyer à ChatInput
+        self.chat_input.send_button = MenuButton(
+            input_x + input_width + 60, input_y + input_height / 2, 100, input_height, "Envoyer", None
+        )
+        
+        # Initialisation des Sprites
         self._setup_sprites()
         
         # Commencer le jeu
         self.start_game_loop()
 
+    
     def _setup_sprites(self):
         """Crée les représentations visuelles des joueurs."""
-        
         num_players = len(self.game_manager.players)
-        radius = 50  # Taille du cercle
         center_x = SCREEN_WIDTH / 2
         center_y = SCREEN_HEIGHT / 2
-        
-        # Disposition en cercle (simple représentation)
         angle_step = 360 / num_players
-        
         for i, player in enumerate(self.game_manager.players):
             angle = i * angle_step
             rad_angle = math.radians(angle)
-            # Calcul des coordonnées sur un cercle (simple trigonométrie)
-            x = center_x + 250 * math.cos(angle)
-            y = center_y + 250 * math.sin(angle)
-            
-            # Représentation simple (un cercle de couleur)
+            x = center_x + 250 * math.cos(rad_angle)
+            y = center_y + 250 * math.sin(rad_angle)
             color = arcade.color.GREEN if player.is_alive else arcade.color.RED_BROWN
-            sprite = arcade.SpriteCircle(radius, color, center_x=x, center_y=y)
-            
+            sprite = arcade.SpriteCircle(50, color, center_x=x, center_y=y)
             self.player_sprites.append(sprite)
             self.player_map[player.name] = sprite
-            
+
     def start_game_loop(self):
-        """Commence la première phase du jeu (Nuit) après le setup."""
+        """Commence la première phase du jeu."""
         self.log_messages.append("--- Initialisation de la Partie ---")
-        self.log_messages.append(f"Joueurs : {len(self.game_manager.players)}")
-        self.current_state = GameState.NIGHT
-        self.game_manager.day = 1
+        self.log_messages.append(f"Ton rôle est: {self.human_player.role.name}")
+        self.current_state = GameState.NIGHT_IA_ACTION
         self.log_messages.append(f"JOUR 1 : La NUIT tombe.")
 
+    def on_mouse_press(self, x, y, button, modifiers):
+        """Gère le clic de la souris."""
+        if self.current_state == GameState.HUMAN_ACTION:
+            for btn in self.action_buttons:
+                if btn.check_click(x, y):
+                    voted_player_name = btn.action
+                    self.log_messages.append(f"🗳️ {self.human_player.name} vote pour {voted_player_name}")
+                    self.game_manager.register_human_vote(voted_player_name)
+                    self.action_buttons = [] 
+                    self.current_state = GameState.VOTING
+                    break
+                    
+        elif self.current_state == GameState.DEBATE and self.human_player.is_alive:
+            self.chat_input.check_click(x, y)
 
-    # --- BOUCLE DE JEU ARCADES ---
+
+    def on_key_press(self, symbol, modifiers):
+        """Gère les entrées clavier (y compris la saisie du chat)."""
+        
+        # 1. Gérer la saisie si on est en mode DEBATE
+        if self.current_state == GameState.DEBATE and self.human_player.is_alive:
+            self.chat_input.handle_key_press(symbol)
+        
+        # 2. Gérer le SKIP
+        elif symbol == arcade.key.SPACE:
+            if self.current_state == GameState.DEBATE:
+                self.debate_timer = 0 
+                # Forcer la fin du message tapé
+                if self.current_speaker:
+                    self.current_message_display = self.current_message_full
+                self.current_speaker = None
+                self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
+
 
     def on_draw(self):
         """Affichage : appelé à chaque image pour dessiner."""
         self.clear()
         
-        # Dessiner les joueurs
-        self.player_sprites.draw()
-        
-        # Dessiner le nom et l'état des joueurs
+        # Dessiner les joueurs et leurs noms
         for player in self.game_manager.players:
              sprite = self.player_map.get(player.name)
              if sprite:
                  color = arcade.color.WHITE
-                 # Si le joueur est mort, afficher en rouge
                  if not player.is_alive:
                      color = arcade.color.RED
-                 
-                 # Affichage du nom au-dessus du sprite
+                     sprite.color = arcade.color.DARK_RED 
+                 else:
+                     sprite.color = arcade.color.GREEN 
                  arcade.draw_text(
                      f"{player.name} ({'IA' if not player.is_human else 'H'})",
                      sprite.center_x, sprite.center_y + 60, color, 12, anchor_x="center"
                  )
-                 
-                 # Affichage du rôle si le jeu est terminé ou si c'est l'humain
                  if self.current_state == GameState.GAME_OVER or player.is_human:
                      role_text = f"Role: {player.role.name}"
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
 
-        # Afficher le Log de Discussion (à gauche)
+        self.player_sprites.draw()
         self._draw_log()
-
-        # Afficher le Compteur Loup (en haut à droite)
         self._draw_status()
-        
-        # Afficher le message de l'IA en train d'écrire
         self._draw_typing_message()
+        
+        # Dessiner les boutons de vote
+        for btn in self.action_buttons:
+            btn.draw()
+        
+        # Dessiner le champ de chat si en mode DEBATE
+        if self.current_state == GameState.DEBATE and self.human_player.is_alive:
+            self.chat_input.draw()
+
 
     def on_update(self, delta_time):
         """Logique : appelé à chaque image pour mettre à jour l'état."""
         
-        # Si on est en mode débat, on simule le temps et la parole
-        if self.current_state == GameState.DEBATE:
-            self._update_debate(delta_time)
-            
-        # Si le débat est terminé, passer au vote
-        elif self.current_state == GameState.VOTING:
-            self.game_manager._day_phase() # Exécute le vote et le lynchage
-            self.current_state = GameState.RESULT
-            
-        # Si c'est la nuit, exécuter les actions de nuit (simple pour l'instant)
-        elif self.current_state == GameState.NIGHT:
-             # Simuler le passage de la nuit (dans un jeu réel, attendre l'input humain)
-             self.game_manager._night_phase()
+        # 1. EXÉCUTION DE LA LOGIQUE DE NUIT
+        if self.current_state == GameState.NIGHT_IA_ACTION:
+             night_message = self.game_manager._night_phase()
+             self.log_messages.append(night_message)
+             
              self.current_state = GameState.DEBATE
-             self.debate_timer = GameManager.DEBATE_TIME_LIMIT # Réinitialiser le timer
+             self.debate_timer = 60 # ASSURE UN DÉBAT PLUS LONG
+             self.messages_generated = 0 
              self.log_messages.append(f"\n☀️ Jour {self.game_manager.day} : Le débat commence !")
 
+        # 2. GESTION DU DÉBAT
+        elif self.current_state == GameState.DEBATE:
+            self._update_debate(delta_time)
+        
+        # 3. GESTION DU VOTE (Déclenché par le clic humain OU si l'humain est mort)
+        elif self.current_state == GameState.VOTING:
+            lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players()) 
+            self.log_messages.append(lynch_message)
+            self.current_state = GameState.RESULT
+        
+        # 4. GESTION DU RÉSULTAT ET TRANSITION
+        elif self.current_state == GameState.RESULT:
+            winner = self.game_manager.check_win_condition()
+            if winner:
+                 self.log_messages.append(f"\n🎉 VICTOIRE des {winner.value} ! Fin de la partie.")
+                 self.current_state = GameState.GAME_OVER
+            else:
+                 self.current_state = GameState.NIGHT_IA_ACTION
+                 self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.")
 
-    # --- Méthodes de Dessin Spécifiques ---
+    
+    def _update_debate(self, delta_time):
+        """Gère le temps et la parole pendant la phase de débat."""
+        
+        self.debate_timer -= delta_time
+        
+        # --- GESTION DE LA VITESSE D'ÉCRITURE ---
+        if self.current_message_display != self.current_message_full:
+            self.typing_speed_counter += 1
+            if self.typing_speed_counter >= self.typing_delay:
+                current_len = len(self.current_message_display)
+                if current_len < len(self.current_message_full):
+                    self.current_message_display += self.current_message_full[current_len]
+                else:
+                    self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
+                    self.current_speaker = None # Permet au prochain orateur d'être sélectionné
+                self.typing_speed_counter = 0
+
+        # --- TRANSITION VERS LA PHASE DE VOTE (Déclenché par le temps ou la limite de messages) ---
+        if (self.debate_timer <= 0 or self.messages_generated >= self.max_messages_per_debate) and self.current_state == GameState.DEBATE:
+            
+            # S'assurer que le dernier message est terminé avant de passer au vote
+            if self.current_speaker is not None:
+                 self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
+                 self.current_speaker = None
+
+            self.log_messages.append("\n🗳️ FIN DU DÉBAT. PLACE AU VOTE.")
+            self.messages_generated = 0 # Reset du compteur
+            
+            if self.human_player.is_alive:
+                self._enter_human_voting_state() 
+                self.current_state = GameState.HUMAN_ACTION
+            else:
+                self.current_state = GameState.VOTING
+                
+        # --- LOGIQUE DE PRISE DE PAROLE (IA) ---
+        # Si personne ne parle ET qu'il reste des messages à générer
+        elif self.current_speaker is None and self.current_state == GameState.DEBATE and self.messages_generated < self.max_messages_per_debate: 
+            
+            alive_ais = [p for p in self.game_manager.get_alive_players() if not p.is_human]
+            if alive_ais:
+                speaker = random.choice(alive_ais)
+                
+                debate_message = speaker.generate_debate_message(self.game_manager._get_public_status())
+                
+                self.current_speaker = speaker
+                self.current_message_full = debate_message
+                self.current_message_display = ""
+                
+                # Le message de l'orateur est ajouté à l'historique de tous les autres
+                for listener in [p for p in alive_ais if p != speaker]:
+                    listener.receive_public_message(speaker.name, debate_message)
+                    
+                self.messages_generated += 1 
+
+    def _enter_human_voting_state(self):
+        """Prépare les boutons pour le vote de lynchage du joueur humain."""
+        alive = self.game_manager.get_alive_players()
+        self.action_buttons = []
+        
+        button_y = 50 
+        button_width = 100
+        button_height = 30
+        
+        voting_targets = [p for p in alive if p != self.human_player]
+        
+        start_x = SCREEN_WIDTH / 2 - (len(voting_targets) * (button_width + 10) / 2) + 50
+        
+        for i, target in enumerate(voting_targets):
+            x = start_x + (i * (button_width + 10))
+            btn = MenuButton(
+                x, button_y, button_width, button_height, 
+                f"Voter {target.name}", target.name 
+            )
+            self.action_buttons.append(btn)
+            
+        self.log_messages.append(f"-> {self.human_player.name}, choisis ta victime (CLIC) :")
+
 
     def _draw_log(self):
-        """Dessine les derniers messages de discussion."""
-        y_pos = SCREEN_HEIGHT - 30
-        arcade.draw_text("JOURNAL DE BORD:", 20, y_pos, arcade.color.ORANGE_RED, 14)
-        y_pos -= 20
+        # --- LOGIQUE DE DESSIN DU LOG AMÉLIORÉE ---
+        LOG_X_START = 10
+        LOG_Y_START = 10
+        LOG_WIDTH = SCREEN_WIDTH // 3 
+        LOG_HEIGHT = SCREEN_HEIGHT - 40 
         
-        # Afficher les 15 derniers messages
-        for msg in self.log_messages[-15:]:
-            arcade.draw_text(msg, 20, y_pos, arcade.color.LIGHT_GRAY, 10)
-            y_pos -= 15
+        # 1. Dessiner un fond sombre (semi-transparent) pour le log
+        arcade.draw_lbwh_rectangle_filled(
+            LOG_X_START, 
+            LOG_Y_START, 
+            LOG_WIDTH, 
+            LOG_HEIGHT, 
+            (20, 20, 20, 180) 
+        )
+        
+        x_pos = LOG_X_START + 10
+        y_pos = SCREEN_HEIGHT - 30
+        line_spacing = 18 
+        font_size = 12 
+        
+        arcade.draw_text("JOURNAL DE BORD:", x_pos, y_pos, arcade.color.ORANGE_RED, 14)
+        y_pos -= 25 
+        
+        for msg in self.log_messages[-30:]:
+            if y_pos < 50: 
+                break
+                
+            arcade.draw_text(
+                msg, 
+                x_pos, 
+                y_pos, 
+                arcade.color.LIGHT_GRAY, 
+                font_size, 
+                width=LOG_WIDTH - 20,
+                multiline=True
+            )
+            y_pos -= line_spacing 
             
     def _draw_status(self):
-        """Affiche les compteurs de jeu."""
-        
-        # Compteur Loups Garous
         arcade.draw_text(
             f"Loups Vivants : {self.game_manager.wolves_alive}",
             SCREEN_WIDTH - 200, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16
         )
-        
-        # Timer de Débat
-        if self.current_state in [GameState.DEBATE, GameState.VOTING]:
+        if self.current_state in [GameState.DEBATE, GameState.VOTING, GameState.HUMAN_ACTION]:
              arcade.draw_text(
                 f"Temps Restant : {int(self.debate_timer)}s",
                 SCREEN_WIDTH - 200, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
             )
 
     def _draw_typing_message(self):
-        """Affiche le message en cours d'écriture (simule l'IA)."""
         if self.current_speaker and self.current_message_display != self.current_message_full:
             arcade.draw_text(
                 f"💬 {self.current_speaker.name} tape...",
@@ -193,75 +443,20 @@ class LoupGarouGame(arcade.Window):
             )
 
 
-    # --- Logique de Débat (Contrainte de Temps) ---
-
-    def _update_debate(self, delta_time):
-        """Gère le temps et la parole pendant la phase de débat."""
-        
-        self.debate_timer -= delta_time
-        
-        # Logique d'écriture (vitesse d'écriture des LLM)
-        if self.current_message_display != self.current_message_full:
-            self.typing_speed_counter += 1
-            if self.typing_speed_counter >= self.typing_delay:
-                # Ajoute un caractère
-                current_len = len(self.current_message_display)
-                if current_len < len(self.current_message_full):
-                    self.current_message_display += self.current_message_full[current_len]
-                else:
-                    # Message terminé, l'ajouter au log
-                    self.log_messages.append(f"{self.current_speaker.name}: {self.current_message_full}")
-                    self.current_speaker = None
-                self.typing_speed_counter = 0
-
-        # Si le timer est écoulé, on passe au vote
-        if self.debate_timer <= 0 and self.current_state == GameState.DEBATE:
-            self.current_state = GameState.VOTING
-            self.log_messages.append("\n🗳️ FIN DU DÉBAT. DÉBUT DU VOTE.")
-        
-        # Si personne ne parle, choisir un nouvel orateur
-        elif self.current_speaker is None and self.debate_timer > 0:
-            alive_ais = [p for p in self.game_manager.get_alive_players() if not p.is_human]
-            if alive_ais:
-                speaker = random.choice(alive_ais)
-                # Générer le message de l'IA
-                debate_message = speaker.generate_debate_message(self.game_manager._get_public_status())
-                
-                # Mettre en place la simulation de la frappe
-                self.current_speaker = speaker
-                self.current_message_full = debate_message
-                self.current_message_display = ""
-                
-                # Envoyer le message aux autres IA
-                for listener in [p for p in alive_ais if p != speaker]:
-                    listener.receive_public_message(speaker.name, debate_message)
-
-
-    # --- Gestion de l'Input Humain (Touches) ---
-
-    def on_key_press(self, symbol, modifiers):
-        """Gère les entrées clavier (ex: pour skipper le débat)."""
-        
-        # Possibilité de skipper les délibérations
-        if symbol == arcade.key.SPACE:
-            if self.current_state == GameState.DEBATE:
-                self.debate_timer = 0 # Fin immédiate du débat
-                self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
-            elif self.current_state == GameState.NIGHT:
-                # Si c'est la nuit, on passe immédiatement à l'étape suivante (pour le test)
-                self.current_state = GameState.DEBATE
-
-
 # --- Lancement du Jeu ---
 
 def main():
     """Fonction principale pour lancer l'application Arcade."""
-    # NOTE: Assurez-vous que les fichiers de contexte existent dans le dossier 'context'
     game = LoupGarouGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
     arcade.run()
 
 
 if __name__ == "__main__":
-    # Pour le test, assure-toi d'avoir tes 9 fichiers de contexte
-    # et que GameManager._setup_players fonctionne correctement
+    import os
+    if not os.path.exists("context"):
+        os.makedirs("context")
+        for i in range(1, 10):
+            with open(f"context/perso_{i}.txt", "w", encoding="utf-8") as f:
+                f.write(f"Tu es l'IA {i}. Ton rôle est d'être un joueur de Loup Garou. Réponds de manière concise.")
+
     main()

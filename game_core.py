@@ -1,63 +1,68 @@
-
 import random
 import time
 import os
-from enum import Enum  
+from enum import Enum
 
-# --- Importations de base ---
+# Importations de base
 from enums_and_roles import Camp, NightAction, Role, ROLES_POOL
 from chat_agent import ChatAgent  # L'IA
 from personalities import pick_personality_for_role
 
 
-# --- CLASSE PLAYER (NON IA) ---
+# --- CLASSE PLAYER (NON IA) -------------------------------------------------
+
 
 class Player:
-    """Représente un joueur humain (ou IA, mais ChatAgent hérite de celle-ci)"""
+    """Représente un joueur humain (ou IA, mais ChatAgent hérite de celle-ci)."""
 
-    def __init__(self, name, is_human=True):
+    def __init__(self, name: str, is_human: bool = True) -> None:
         self.name = name
         self.is_human = is_human
-        self.role = None
-        self.is_alive = True
-        self.has_kill_potion = False
-        self.has_life_potion = False
+        self.role: Role | None = None
+        self.is_alive: bool = True
+        self.has_kill_potion: bool = False
+        self.has_life_potion: bool = False
 
-    def assign_role(self, role):
+    def assign_role(self, role: Role) -> None:
+        """Assigne un rôle au joueur."""
         self.role = role
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         status = "Vivant" if self.is_alive else "Mort"
-        return f"[{'Humain' if self.is_human else 'IA'}] {self.name} ({self.role.name if self.role else 'N/A'} - {status})"
+        role_name = self.role.name if self.role else "N/A"
+        kind = "Humain" if self.is_human else "IA"
+        return f"[{kind}] {self.name} ({role_name} - {status})"
 
 
-# --- CLASSE GAMEMANAGER (VERSION COMPLÈTE) ---
+# --- CLASSE GAMEMANAGER : ORCHESTRE UNE PARTIE ------------------------------
+
 
 class GameManager:
-    """Gère le déroulement et la logique du jeu."""
+    """Gère le déroulement et la logique d'une partie complète."""
 
-    DEBATE_TIME_LIMIT = 180  # 3 minutes en secondes
+    # Durée max simulée pour le débat (en secondes)
+    DEBATE_TIME_LIMIT = 120
 
-    def __init__(self, human_player_name="Humain_Lucie"):
+    def __init__(self, human_player_name: str = "Humain_Lucie") -> None:
+        # État global de la partie
+        self.day: int = 0
+        self.players: list[Player] = []
+        self.available_roles: list[Role] = list(ROLES_POOL.values())
 
-        self.day = 0
-        self.players = []
-        self.available_roles = list(ROLES_POOL.values())
+        # Setup joueurs + rôles
+        self.setup_players(human_player_name)
+        self.distribute_roles()
 
-        # Lancement des méthodes de setup
-        self._setup_players(human_player_name)
-        self._distribute_roles()
-
-        # Initialisation des compteurs
-        self.wolves_alive = sum(
+        # Compteurs initiaux
+        self.wolves_alive: int = sum(
             1 for p in self.players if p.role.camp == Camp.LOUP and p.is_alive
         )
-        self.vote_counts = {}
+        self.vote_counts: dict[str, int] = {}
 
-    # --- METHODES DE SETUP ET GETTERS ---
+    # --- SETUP ---------------------------------------------------------------
 
-    def _setup_players(self, human_player_name):
-        """Initialise les 9 IA et le joueur humain."""
+    def setup_players(self, human_player_name: str) -> None:
+        """Crée 9 IA + 1 joueur humain avec un chemin de personnalité initial."""
         ia_names = [f"IA {i+1}" for i in range(9)]
         personality_paths = [f"context/perso_{i+1}.txt" for i in range(9)]
         random.shuffle(personality_paths)
@@ -68,10 +73,14 @@ class GameManager:
                 ChatAgent(name=name, personality_context_path=path, is_human=False)
             )
 
+        # Le joueur humain est un Player simple
         self.players.append(Player(name=human_player_name, is_human=True))
 
-    def _distribute_roles(self, custom_roles=None):
-        """Distribue aléatoirement les rôles aux joueurs et assigne les personnalités aux IA"""
+    def distribute_roles(self, custom_roles: list[Role] | None = None) -> None:
+        """
+        Distribue aléatoirement les rôles aux joueurs.
+        Pour chaque IA, assigne aussi une personnalité (prompt système).
+        """
         roles_to_distribute = custom_roles if custom_roles else list(self.available_roles)
 
         if len(self.players) != len(roles_to_distribute):
@@ -90,18 +99,12 @@ class GameManager:
                 player.has_kill_potion = True
                 player.has_life_potion = True
 
-            # Si c'est une IA (ChatAgent), on lui assigne une personnalité
+            # Pour une IA, on ajoute personnalité + contexte rôle
             if not player.is_human:
-                # 1. Tirer une personnalité en fonction du rôle (biaisé mais pas déterministe)
                 personality = pick_personality_for_role(role.name)
-
-                # 2. Mettre à jour son chemin de contexte
                 player.personality_context_path = personality.context_path
+                player.initiate_history()  # recharge son fichier de personnalité
 
-                # 3. Réinitialiser son historique avec la nouvelle personnalité
-                player.initiate_history()  # relit le fichier de personnalité
-
-                # 4. Ajouter une couche de contexte sur le rôle précis + personnalité
                 player.history.append(
                     {
                         "role": "system",
@@ -116,16 +119,18 @@ class GameManager:
 
             print(f"Rôle assigné à {player.name}: {player.role.name}")
 
-    def get_alive_players(self):
+    # --- UTILITAIRES D'ÉTAT --------------------------------------------------
+
+    def get_alive_players(self) -> list[Player]:
         """Retourne la liste des joueurs vivants."""
         return [p for p in self.players if p.is_alive]
 
-    def _get_public_status(self):
-        """Retourne l'état public des joueurs pour le prompt des IA."""
+    def get_public_status(self) -> list[dict]:
+        """Format public minimal pour les prompts IA (nom + vivant ou non)."""
         return [{"name": p.name, "is_alive": p.is_alive} for p in self.players]
 
-    def check_win_condition(self):
-        """Vérifie si un camp a gagné."""
+    def check_win_condition(self) -> Camp | None:
+        """Retourne le camp gagnant si la partie est terminée, sinon None."""
         alive = self.get_alive_players()
         wolves = sum(1 for p in alive if p.role.camp == Camp.LOUP)
         villagers = sum(1 for p in alive if p.role.camp == Camp.VILLAGEOIS)
@@ -136,18 +141,18 @@ class GameManager:
             return Camp.LOUP
         return None
 
-    # --- NOUVELLE LOGIQUE DE JEU (CYCLES) ---
+    # --- BOUCLE PRINCIPALE ---------------------------------------------------
 
-    def start_game(self):
-        """Lance le cycle de jeu principal."""
+    def start_game(self) -> None:
+        """Boucle principale : enchaîne nuits et jours jusqu'à la victoire d'un camp."""
         print("\n--- Début du Jeu ---")
 
         while self.check_win_condition() is None:
             self.day += 1
             print(f"\n=================== Jour {self.day} ===================")
 
-            self._night_phase()
-            self._day_phase()
+            self.night_phase()
+            self.day_phase()
 
             self.wolves_alive = sum(
                 1 for p in self.players if p.role.camp == Camp.LOUP and p.is_alive
@@ -156,30 +161,31 @@ class GameManager:
             winner = self.check_win_condition()
             if winner:
                 print(
-                    f"\n🎉 Victoire des {winner.value} après {self.day} jours! "
+                    f"\n🎉 Victoire des {winner.value} après {self.day} jours ! "
                     f"Loups restants: {self.wolves_alive}"
                 )
                 return
 
-    # --- Phase de Nuit ---
+    # --- PHASE DE NUIT -------------------------------------------------------
 
-    def _night_phase(self):
-        """Orchestre les actions secrètes des joueurs (Voyante, Loup, Sorcière...)."""
+    def night_phase(self) -> None:
+        """Gère toutes les actions de nuit (voyante, loups, sorcière...)."""
         print("\n🌙 La nuit tombe. Les joueurs ferment les yeux...")
 
         alive = self.get_alive_players()
 
-        ordered_actions = {
+        # Regroupement des acteurs par type d'action de nuit
+        ordered_actions: dict[NightAction, list[Player]] = {
             NightAction.INVESTIGATE: [],
             NightAction.KILL: [],
             NightAction.POTION: [],
         }
 
-        for p in alive:
-            if p.role.night_action in ordered_actions:
-                ordered_actions[p.role.night_action].append(p)
+        for player in alive:
+            if player.role.night_action in ordered_actions:
+                ordered_actions[player.role.night_action].append(player)
 
-        kill_target = None
+        kill_target: Player | None = None
 
         # 1. Action de la Voyante (INVESTIGATE)
         for voyante in ordered_actions[NightAction.INVESTIGATE]:
@@ -197,15 +203,14 @@ class GameManager:
                             ),
                         }
                     )
-                    print(
-                        f"🔮 La Voyante ({voyante.name}) a enquêté sur {target.name}."
-                    )
+                    print(f"🔮 La Voyante ({voyante.name}) a enquêté sur {target.name}.")
 
         # 2. Action des Loups (KILL)
         wolves_acting = ordered_actions[NightAction.KILL]
         if wolves_acting:
-            if not wolves_acting[0].is_human:
-                target_name = wolves_acting[0].decide_night_action(alive)
+            leader = wolves_acting[0]
+            if not leader.is_human:
+                target_name = leader.decide_night_action(alive)
                 kill_target = next((p for p in alive if p.name == target_name), None)
                 if kill_target:
                     print(f"🐺 Les Loups ciblent {kill_target.name}.")
@@ -213,27 +218,28 @@ class GameManager:
         # 3. Action de la Sorcière (POTION)
         sorciere = next((p for p in alive if p.role.name == "Sorcière"), None)
         if sorciere:
-            pass  # Logique de potion à implémenter
+            # À implémenter plus tard (utilisation des potions)
+            pass
 
         # Exécution de l'élimination
         if kill_target and kill_target.is_alive:
             kill_target.is_alive = False
             print(f"❌ {kill_target.name} est mort(e).")
 
-    # --- Phase de Jour (Débat et Vote) ---
+    # --- PHASE DE JOUR -------------------------------------------------------
 
-    def _day_phase(self):
-        """Gère le débat, les délibérations limitées par le temps et le lynchage."""
+    def day_phase(self) -> None:
+        """Gère débat + vote + lynchage pour un jour complet."""
         print("\n☀️ Le jour se lève. Débat et lynchage.")
         alive = self.get_alive_players()
         self.vote_counts = {}
 
-        self._debate_phase(alive)
-        self._voting_phase(alive)
-        self._lynch_result(alive)
+        self.debate_phase(alive)
+        self.voting_phase(alive)
+        self.lynch_result(alive)
 
-    def _debate_phase(self, alive_players):
-        """Gère les messages publics des IA pendant le temps imparti."""
+    def debate_phase(self, alive_players: list[Player]) -> None:
+        """Fait parler quelques joueurs pendant un temps limité."""
         print(f"\n💬 Le débat commence (max {self.DEBATE_TIME_LIMIT}s simulées).")
         start_time = time.time()
 
@@ -246,13 +252,14 @@ class GameManager:
 
             if not speaker.is_human:
                 debate_message = speaker.generate_debate_message(
-                    self._get_public_status()
+                    self.get_public_status()
                 )
             else:
                 debate_message = "Je suis innocent(e) !"
 
             print(f"🗣️ {speaker.name}: {debate_message}")
 
+            # Mise à jour de l'historique des autres IA
             for listener in [
                 p for p in alive_players if not p.is_human and p != speaker
             ]:
@@ -260,30 +267,55 @@ class GameManager:
 
             time.sleep(0.5)
 
-    def _voting_phase(self, alive_players):
-        """Collecte les votes de tous les joueurs (IA et Humain)."""
+    def voting_phase(self, alive_players: list[Player]) -> None:
+        """Collecte les votes de tous les joueurs (IA + humain)."""
         print("\n🗳️ Place au vote !")
 
         for voter in alive_players:
             if not voter.is_human:
                 voted_name = voter.decide_vote(
-                    self._get_public_status(),
+                    self.get_public_status(),
                     debate_summary="Récapitulatif des accusations...",
                 )
             else:
-                # TODO: remplacer par un input réel joueur (UI) au lieu de random
+                # TODO : remplacer par un vrai input joueur (UI) au lieu de random
                 voted_name = random.choice([p.name for p in alive_players if p != voter])
 
             if voted_name in [p.name for p in alive_players]:
-                self.vote_counts[voted_name] = self.vote_counts.get(voted_name, 0) + 1
+                self.vote_counts[voted_name] = (
+                    self.vote_counts.get(voted_name, 0) + 1
+                )
                 print(f"   -> {voter.name} vote pour {voted_name}")
             else:
                 # Vote invalide, ignoré
                 pass
 
-    def _lynch_result(self, alive_players):
-        """Détermine la victime du lynchage et gère l'élimination."""
+    def register_human_vote(self, voted_player_name: str) -> None:
+        """
+        Méthode utilitaire pour une future UI :
+        enregistre le vote du joueur humain sans passer par voting_phase().
+        """
+        self.vote_counts[voted_player_name] = (
+            self.vote_counts.get(voted_player_name, 0) + 1
+        )
 
+    def voting_phase_ia_only(self) -> None:
+        """Version alternative : ne fait voter que les IA (pour une UI pilotée)."""
+        alive_players = self.get_alive_players()
+
+        for voter in alive_players:
+            if not voter.is_human and voter.is_alive:
+                voted_name = voter.decide_vote(
+                    self.get_public_status(),
+                    debate_summary="Récapitulatif des accusations...",
+                )
+                if voted_name in [p.name for p in alive_players]:
+                    self.vote_counts[voted_name] = (
+                        self.vote_counts.get(voted_name, 0) + 1
+                    )
+
+    def lynch_result(self, alive_players: list[Player]) -> None:
+        """Calcule la victime du lynchage et applique l'élimination."""
         if not self.vote_counts:
             print("Personne n'a voté. Le village est confus.")
             return
@@ -291,8 +323,10 @@ class GameManager:
         lynch_target_name = max(self.vote_counts, key=self.vote_counts.get)
         max_votes = self.vote_counts[lynch_target_name]
 
+        # Cas d'égalité
         if list(self.vote_counts.values()).count(max_votes) > 1:
             print("⚖️ Égalité des votes ! Personne n'est lynché.")
+            self.vote_counts = {}
             return
 
         lynch_target = next(
@@ -304,17 +338,16 @@ class GameManager:
                 f"\n🔥 {lynch_target.name} est lynché avec {max_votes} votes. "
                 f"Son rôle était {lynch_target.role.name}."
             )
-
             if lynch_target.role.name == "Chasseur":
                 print("CHASSEUR ACTIF : Tuer quelqu'un...")
 
         self.vote_counts = {}
 
 
-# --- BLOC D'EXÉCUTION DU TEST ---
+# --- BLOC D'EXÉCUTION DE TEST -----------------------------------------------
+
 
 if __name__ == "__main__":
-
     print("--- Préparation des contextes ---")
     if not os.path.exists("context"):
         os.makedirs("context")
@@ -325,9 +358,9 @@ if __name__ == "__main__":
                     f"Tu dois répondre de manière concise."
                 )
 
-    # Création d'un rôle pour le test simple de ChatAgent
+    # Petit test de ChatAgent isolé
     class TestRole(Role):
-        def __init__(self, name, camp, night_action=NightAction.NONE):
+        def __init__(self, name, camp, night_action: NightAction = NightAction.NONE):
             super().__init__(name, camp, night_action)
 
     lucia_agent = ChatAgent(
