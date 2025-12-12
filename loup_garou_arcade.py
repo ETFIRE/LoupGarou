@@ -643,7 +643,7 @@ class LoupGarouGame(arcade.Window):
     def draw_log(self):
         """Dessine le Journal de Bord (Historique Permanent) à GAUCHE."""
         LOG_X_START = 10
-        LOG_WIDTH = SCREEN_WIDTH // 3 
+        LOG_WIDTH = SCREEN_WIDTH // 5
         LOG_HEIGHT = SCREEN_HEIGHT - 40 
         
         arcade.draw_lbwh_rectangle_filled(
@@ -672,7 +672,7 @@ class LoupGarouGame(arcade.Window):
                 y_pos, 
                 arcade.color.LIGHT_GRAY, 
                 font_size, 
-                width=LOG_WIDTH - 20,
+                width=LOG_WIDTH - 30,
                 multiline=True
             )
             y_pos -= line_spacing 
