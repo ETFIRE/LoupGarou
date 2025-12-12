@@ -1,21 +1,18 @@
-# loup_garou_arcade.py
 
-# -*- coding: utf-8 -*-
 import arcade
 import random
 import time
 from enum import Enum 
 import math
-
-# IMPORTATION ET CHARGEMENT FORCÉ DE L'ENVIRONNEMENT
+import os
 from dotenv import load_dotenv
+
 load_dotenv() 
 
-# Importation de vos classes de jeu
 from game_core import GameManager, Player 
 from enums_and_roles import Camp, NightAction 
 
-# --- Bouton Interactif ---
+
 class MenuButton:
     """Classe pour dessiner et gérer les boutons de vote/action."""
     def __init__(self, center_x, center_y, width, height, text, action):
@@ -27,12 +24,26 @@ class MenuButton:
         self.action = action 
 
     def draw(self):
+        color_map = {
+            "ENQUÊTER": arcade.color.PURPLE,
+            "TUER": arcade.color.RED_DEVIL,
+            "SAUVER": arcade.color.YELLOW_GREEN,
+            "PASSER": arcade.color.YELLOW_ORANGE,
+            "Voter": arcade.color.DARK_RED,
+            "COMMENCER": arcade.color.DARK_GREEN,
+            "DEFAULT": arcade.color.DARK_BLUE
+        }
+        
+        
+        base_action = self.text.split()[0]
+        color = color_map.get(base_action, color_map.get(self.text.split('[')[0].strip(), color_map["DEFAULT"]))
+
         arcade.draw_lbwh_rectangle_filled(
             self.center_x - self.width / 2, 
             self.center_y - self.height / 2, 
             self.width, 
             self.height, 
-            arcade.color.RED_DEVIL if self.text.startswith("Voter") else arcade.color.DARK_GREEN
+            color
         )
         arcade.draw_text(self.text, self.center_x, self.center_y,
                          arcade.color.WHITE, 12, anchor_x="center", anchor_y="center")
@@ -43,7 +54,7 @@ class MenuButton:
                 self.center_y - self.height/2 < y < self.center_y + self.height/2)
 
 
-# --- Champ de Saisie de Chat ---
+
 class ChatInput:
     """Représente la boîte de saisie de texte pour l'humain."""
     def __init__(self, x, y, width, height, game_instance):
@@ -57,11 +68,11 @@ class ChatInput:
         self.send_button = None 
 
     def draw(self):
-        # Dessiner le fond du champ de saisie
+        
         color = arcade.color.WHITE if self.active else arcade.color.LIGHT_GRAY
         arcade.draw_lbwh_rectangle_filled(self.x, self.y, self.width, self.height, color)
         
-        # Dessiner le texte saisi avec curseur
+        
         cursor = ("|" if self.active and int(time.time() * 2) % 2 == 0 else "")
         arcade.draw_text(self.text + cursor, 
                          self.x + 5, self.y + 5, 
@@ -89,43 +100,44 @@ class ChatInput:
         if self.text.strip():
             message = self.text.strip()
             
-            # 1. Ajouter au log public
+            
             self.game.log_messages.append(f"🗣️ {self.game.human_player.name} : {message}")
             
-            # 2. ENVOYER LE MESSAGE AUX IA (stockage de l'historique)
+            
             alive_ais = [p for p in self.game.game_manager.get_alive_players() if not p.is_human]
             for listener in alive_ais:
                 listener.receive_public_message(self.game.human_player.name, message)
             
-            # 3. Réinitialiser et maintenir l'activation
+            
             self.text = ""
-            self.game.current_speaker = None # Permet aux IA de réagir
+            self.game.current_speaker = None 
             
     def check_click(self, x, y):
-        # Activation/Désactivation du champ de saisie
+        
         is_in_input = (self.x < x < self.x + self.width and self.y < y < self.y + self.height)
         
-        # Si le clic est sur le bouton Envoyer, on ne désactive pas, mais on envoie
+        
         if self.send_button and self.send_button.check_click(x, y):
              self.send_message()
         else:
-            # Sinon, on active si on est sur la zone, on désactive sinon
+            
             self.active = is_in_input
 
 
-# --- Paramètres de la Fenêtre & États ---
+
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
 
 class GameState(Enum):
-    SETUP = 1
-    NIGHT_IA_ACTION = 2 
-    HUMAN_ACTION = 3    
+    SETUP = 1 
+    NIGHT_HUMAN_ACTION = 2 
+    NIGHT_IA_ACTION = 3    
     DEBATE = 4
-    VOTING = 5
-    RESULT = 6
-    GAME_OVER = 7
+    HUMAN_ACTION = 5    
+    VOTING = 6
+    RESULT = 7
+    GAME_OVER = 8
 
 
 class LoupGarouGame(arcade.Window):
@@ -135,44 +147,59 @@ class LoupGarouGame(arcade.Window):
         super().__init__(width, height, title)
         arcade.set_background_color(arcade.color.DARK_BLUE_GRAY)
 
-        # 1. Initialisation du Moteur de Jeu
-        self.game_manager = GameManager(human_player_name=human_name)
-        self.human_player = next((p for p in self.game_manager.players if p.is_human), None)
         
-        # 2. Variables d'Affichage et Log
+        self.game_manager = GameManager(human_player_name=human_name)
+        self.human_player = self.game_manager.human_player
+        
         self.log_messages = [] 
         self.player_sprites = arcade.SpriteList()
         self.player_map = {} 
         self.action_buttons = []
         
-        # 3. Gestion du Temps et Vitesse d'écriture (Débat)
-        # NOUVEAU: On augmente le temps de débat pour garantir plusieurs tours de parole
-        self.debate_timer = 60 # CHANGÉ: 20 -> 60s
+        self.debate_timer = 60 
         self.current_speaker = None
         self.current_message_full = ""
         self.current_message_display = ""
         self.typing_speed_counter = 0 
-        # NOUVEAU: On accélère la vitesse de frappe (1 = presque instantané)
-        self.typing_delay = 1 # CHANGÉ: 3 -> 1
+        self.typing_delay = 5           
         self.messages_generated = 0           
         self.max_messages_per_debate = 10     
+        self.message_is_complete = False 
         
-        # 4. INITIALISATION DU CHAT INPUT 
-        input_x = 20
+        
+        PANEL_WIDTH = SCREEN_WIDTH // 3 
+        INPUT_HEIGHT = 30
+        
+        input_x = SCREEN_WIDTH - PANEL_WIDTH - 10 
         input_y = 5 
-        input_width = SCREEN_WIDTH - 220 
-        input_height = 30
-        self.chat_input = ChatInput(input_x, input_y, input_width, input_height, self)
+        input_width = PANEL_WIDTH - 100 
         
-        # Assignation du bouton Envoyer à ChatInput
+        self.chat_input = ChatInput(input_x, input_y, input_width, INPUT_HEIGHT, self)
+        
+       
         self.chat_input.send_button = MenuButton(
-            input_x + input_width + 60, input_y + input_height / 2, 100, input_height, "Envoyer", None
+            input_x + input_width + 50, 
+            input_y + INPUT_HEIGHT / 2, 
+            90, 
+            INPUT_HEIGHT, 
+            "Envoyer", 
+            None
         )
         
-        # Initialisation des Sprites
+       
+        self.start_button = MenuButton(
+            SCREEN_WIDTH / 2, 
+            SCREEN_HEIGHT / 2, 
+            300, 
+            60, 
+            "COMMENCER LA PARTIE", 
+            "start_game"
+        )
+        
+        
         self._setup_sprites()
         
-        # Commencer le jeu
+        
         self.start_game_loop()
 
     
@@ -193,15 +220,39 @@ class LoupGarouGame(arcade.Window):
             self.player_map[player.name] = sprite
 
     def start_game_loop(self):
-        """Commence la première phase du jeu."""
+        """Initialise le jeu en état de SETUP, sans déclencher la nuit."""
         self.log_messages.append("--- Initialisation de la Partie ---")
         self.log_messages.append(f"Ton rôle est: {self.human_player.role.name}")
-        self.current_state = GameState.NIGHT_IA_ACTION
-        self.log_messages.append(f"JOUR 1 : La NUIT tombe.")
+        
+        
+        if self.human_player.role and self.human_player.role.camp == Camp.LOUP:
+            if self.human_player.wolf_teammates:
+                teammates_str = ", ".join(self.human_player.wolf_teammates)
+                self.log_messages.append(f"🐺 **TU ES LOUP-GAROU** ! Tes coéquipiers sont : {teammates_str}")
+            else:
+                 self.log_messages.append("🐺 **TU ES LOUP-GAROU** ! Tu es le seul loup de la partie.")
+        
+        self.current_state = GameState.SETUP 
+        self.log_messages.append(f"\nCliquez sur 'COMMENCER LA PARTIE' pour lancer la Nuit 1.")
 
     def on_mouse_press(self, x, y, button, modifiers):
         """Gère le clic de la souris."""
-        if self.current_state == GameState.HUMAN_ACTION:
+        
+        
+        if self.current_state == GameState.SETUP:
+            if self.start_button.check_click(x, y):
+                
+                if self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
+                    self.current_state = GameState.NIGHT_HUMAN_ACTION
+                    self.log_messages.append(f"\nJOUR 1 : La NUIT tombe. Exécute ton action de {self.human_player.role.name}.")
+                else:
+                    
+                    self.current_state = GameState.NIGHT_IA_ACTION
+                    self.log_messages.append(f"\nJOUR 1 : La NUIT tombe.")
+                return 
+                
+        
+        elif self.current_state == GameState.HUMAN_ACTION:
             for btn in self.action_buttons:
                 if btn.check_click(x, y):
                     voted_player_name = btn.action
@@ -209,27 +260,33 @@ class LoupGarouGame(arcade.Window):
                     self.game_manager.register_human_vote(voted_player_name)
                     self.action_buttons = [] 
                     self.current_state = GameState.VOTING
-                    break
+                    return
                     
+        
         elif self.current_state == GameState.DEBATE and self.human_player.is_alive:
             self.chat_input.check_click(x, y)
+        
+        
+        elif self.current_state == GameState.NIGHT_HUMAN_ACTION:
+             self._handle_human_night_action_click(x, y)
 
 
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
         
-        # 1. Gérer la saisie si on est en mode DEBATE
+       
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
             self.chat_input.handle_key_press(symbol)
         
-        # 2. Gérer le SKIP
+       
         elif symbol == arcade.key.SPACE:
             if self.current_state == GameState.DEBATE:
                 self.debate_timer = 0 
-                # Forcer la fin du message tapé
                 if self.current_speaker:
                     self.current_message_display = self.current_message_full
+                    self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
                 self.current_speaker = None
+                self.message_is_complete = False 
                 self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
 
 
@@ -237,110 +294,254 @@ class LoupGarouGame(arcade.Window):
         """Affichage : appelé à chaque image pour dessiner."""
         self.clear()
         
-        # Dessiner les joueurs et leurs noms
+       
+        human_is_wolf = (self.human_player.role and self.human_player.role.camp == Camp.LOUP)
+        wolf_teammates = self.human_player.wolf_teammates
+        
+        
         for player in self.game_manager.players:
              sprite = self.player_map.get(player.name)
              if sprite:
                  color = arcade.color.WHITE
+                 
                  if not player.is_alive:
                      color = arcade.color.RED
                      sprite.color = arcade.color.DARK_RED 
                  else:
                      sprite.color = arcade.color.GREEN 
+                     
+                
+                 if human_is_wolf and player.name in wolf_teammates:
+                     color = arcade.color.YELLOW
+                 
                  arcade.draw_text(
                      f"{player.name} ({'IA' if not player.is_human else 'H'})",
                      sprite.center_x, sprite.center_y + 60, color, 12, anchor_x="center"
                  )
+                 
                  if self.current_state == GameState.GAME_OVER or player.is_human:
                      role_text = f"Role: {player.role.name}"
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
 
         self.player_sprites.draw()
-        self._draw_log()
-        self._draw_status()
-        self._draw_typing_message()
         
-        # Dessiner les boutons de vote
+       
+        self.draw_log()
+        self.draw_status()
+        self.draw_typing_message_right()
+        
+        
+        
         for btn in self.action_buttons:
             btn.draw()
+            
         
-        # Dessiner le champ de chat si en mode DEBATE
+        if self.current_state == GameState.NIGHT_HUMAN_ACTION and not self.action_buttons:
+            self._display_human_night_action_buttons()
+        
+        
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
             self.chat_input.draw()
+            
+        
+        if self.current_state == GameState.SETUP:
+            self.start_button.draw()
 
 
     def on_update(self, delta_time):
         """Logique : appelé à chaque image pour mettre à jour l'état."""
         
-        # 1. EXÉCUTION DE LA LOGIQUE DE NUIT
+       
+        if self.current_state in [GameState.SETUP, GameState.NIGHT_HUMAN_ACTION]:
+            return
+
+        
         if self.current_state == GameState.NIGHT_IA_ACTION:
-             night_message = self.game_manager._night_phase()
+             night_message = self.game_manager._night_phase() 
              self.log_messages.append(night_message)
              
              self.current_state = GameState.DEBATE
-             self.debate_timer = 60 # ASSURE UN DÉBAT PLUS LONG
+             self.debate_timer = 60 
              self.messages_generated = 0 
              self.log_messages.append(f"\n☀️ Jour {self.game_manager.day} : Le débat commence !")
 
-        # 2. GESTION DU DÉBAT
-        elif self.current_state == GameState.DEBATE:
-            self._update_debate(delta_time)
         
-        # 3. GESTION DU VOTE (Déclenché par le clic humain OU si l'humain est mort)
+        elif self.current_state == GameState.DEBATE:
+            self._update_debate(delta_time) 
+        
+        
         elif self.current_state == GameState.VOTING:
             lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players()) 
             self.log_messages.append(lynch_message)
             self.current_state = GameState.RESULT
-        
-        # 4. GESTION DU RÉSULTAT ET TRANSITION
+      
         elif self.current_state == GameState.RESULT:
             winner = self.game_manager.check_win_condition()
             if winner:
                  self.log_messages.append(f"\n🎉 VICTOIRE des {winner.value} ! Fin de la partie.")
                  self.current_state = GameState.GAME_OVER
             else:
-                 self.current_state = GameState.NIGHT_IA_ACTION
-                 self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.")
+                 
+                 self.log_messages.append(f"\nJOUR {self.game_manager.day + 1} : La NUIT tombe.") 
+                 if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
+                     self.current_state = GameState.NIGHT_HUMAN_ACTION
+                 else:
+                     self.current_state = GameState.NIGHT_IA_ACTION
 
-    
+   
+    def _display_human_night_action_buttons(self):
+        """Prépare les boutons d'action de nuit pour la Voyante/Sorcière humaine."""
+        
+        self.action_buttons = []
+        alive = self.game_manager.get_alive_players()
+        role_name = self.human_player.role.name
+        
+        button_y = 50 
+        button_width = 150
+        button_height = 40
+        
+        targets = [p for p in alive if p != self.human_player]
+        targets_msg = ""
+
+        if role_name == "Voyante":
+            action = "ENQUÊTER"
+            targets_msg = "Choisis qui enquêter (Voyante) :"
+            
+        elif role_name == "Sorcière" and (self.human_player.has_kill_potion or self.human_player.has_life_potion):
+            targets_msg = "Sorcière: Choisis ta cible ou PASSE"
+            
+           
+            targets_for_potions = [p for p in alive if p != self.human_player]
+
+           
+            if self.human_player.has_kill_potion:
+                for i, target in enumerate(targets_for_potions):
+                    x_offset = -200 if i < 3 else 0 
+                    y_pos = button_y + (i * 50) 
+
+            
+           
+            if self.human_player.has_kill_potion:
+                 self.action_buttons.append(MenuButton(SCREEN_WIDTH / 2 - 160, button_y, 140, button_height, "TUER [Potion Mort]", "TUER"))
+                 
+            if self.human_player.has_life_potion:
+                 self.action_buttons.append(MenuButton(SCREEN_WIDTH / 2 + 10, button_y, 140, button_height, "SAUVER [Potion Vie]", "SAUVER"))
+                 
+            self.action_buttons.append(MenuButton(SCREEN_WIDTH / 2 + 180, button_y, 100, button_height, "PASSER", "PASSER"))
+            
+            self.log_messages.append(f"-> {targets_msg}")
+            return
+            
+        else:
+           
+            self.current_state = GameState.NIGHT_IA_ACTION
+            return
+
+        self.log_messages.append(f"-> {role_name}: {targets_msg}")
+
+        
+        start_x = SCREEN_WIDTH / 2 - (len(targets) * (button_width + 10) / 2) + 50
+        
+        for i, target in enumerate(targets):
+            x = start_x + (i * (button_width + 10))
+            btn = MenuButton(
+                x, button_y, button_width, button_height, 
+                f"{action} {target.name}", 
+                f"{action}:{target.name}" 
+            )
+            self.action_buttons.append(btn)
+
+
+    def _handle_human_night_action_click(self, x, y):
+        """Traite le clic du joueur humain sur un bouton d'action de nuit."""
+        
+        clicked_action = None
+        for btn in self.action_buttons:
+            if btn.check_click(x, y):
+                clicked_action = btn.action
+                break
+        
+        if not clicked_action:
+            return
+
+        self.action_buttons = [] 
+        if clicked_action == "PASSER":
+            self.log_messages.append("Action de nuit passée.")
+            self.current_state = GameState.NIGHT_IA_ACTION
+            return
+        
+        elif self.human_player.role.name == "Voyante" and ":" in clicked_action:
+            action_type, target_name = clicked_action.split(":", 1)
+            target = next((p for p in self.game_manager.players if p.name == target_name), None)
+            
+            if action_type == "ENQUÊTER" and target:
+                target_role = target.role.name
+                target_camp = target.role.camp.value
+                self.log_messages.append(f"🕵️‍♀️ Révélation : {target.name} est un(e) **{target_role}** ({target_camp}).")
+                self.current_state = GameState.NIGHT_IA_ACTION
+                return
+                
+        elif self.human_player.role.name == "Sorcière" and (clicked_action == "TUER" or clicked_action == "SAUVER"):
+            
+            
+            if clicked_action == "TUER" and self.human_player.has_kill_potion:
+                 self.human_player.has_kill_potion = False
+                 self.log_messages.append(f"🧪 Sorcière : Potion de mort utilisée. L'impact sera résolu.")
+            elif clicked_action == "SAUVER" and self.human_player.has_life_potion:
+                 self.human_player.has_life_potion = False
+                 self.log_messages.append(f"💖 Sorcière : Potion de vie utilisée. L'impact sera résolu.")
+            
+            self.current_state = GameState.NIGHT_IA_ACTION
+            return
+            
+       
+        self.log_messages.append("Résolution des actions IA...")
+        self.current_state = GameState.NIGHT_IA_ACTION
+        
+  
     def _update_debate(self, delta_time):
         """Gère le temps et la parole pendant la phase de débat."""
         
         self.debate_timer -= delta_time
-        
-        # --- GESTION DE LA VITESSE D'ÉCRITURE ---
-        if self.current_message_display != self.current_message_full:
+    
+        if self.current_speaker is not None and not self.message_is_complete:
             self.typing_speed_counter += 1
             if self.typing_speed_counter >= self.typing_delay:
                 current_len = len(self.current_message_display)
                 if current_len < len(self.current_message_full):
                     self.current_message_display += self.current_message_full[current_len]
                 else:
+                  
                     self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
-                    self.current_speaker = None # Permet au prochain orateur d'être sélectionné
+                    self.message_is_complete = True 
                 self.typing_speed_counter = 0
 
-        # --- TRANSITION VERS LA PHASE DE VOTE (Déclenché par le temps ou la limite de messages) ---
         if (self.debate_timer <= 0 or self.messages_generated >= self.max_messages_per_debate) and self.current_state == GameState.DEBATE:
             
-            # S'assurer que le dernier message est terminé avant de passer au vote
-            if self.current_speaker is not None:
+           
+            if self.current_speaker is not None and not self.message_is_complete:
+                 self.current_message_display = self.current_message_full
                  self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
-                 self.current_speaker = None
 
+            self.current_speaker = None 
+            self.message_is_complete = False 
             self.log_messages.append("\n🗳️ FIN DU DÉBAT. PLACE AU VOTE.")
-            self.messages_generated = 0 # Reset du compteur
+            self.messages_generated = 0 
             
             if self.human_player.is_alive:
-                self._enter_human_voting_state() 
+                self.enter_human_voting_state() 
                 self.current_state = GameState.HUMAN_ACTION
             else:
                 self.current_state = GameState.VOTING
-                
-        # --- LOGIQUE DE PRISE DE PAROLE (IA) ---
-        # Si personne ne parle ET qu'il reste des messages à générer
-        elif self.current_speaker is None and self.current_state == GameState.DEBATE and self.messages_generated < self.max_messages_per_debate: 
+       
+        elif (self.current_speaker is None or self.message_is_complete) and self.messages_generated < self.max_messages_per_debate: 
+           
+            self.current_speaker = None
+            self.current_message_full = ""
+            self.current_message_display = ""
+            self.message_is_complete = False 
             
+           
             alive_ais = [p for p in self.game_manager.get_alive_players() if not p.is_human]
             if alive_ais:
                 speaker = random.choice(alive_ais)
@@ -351,13 +552,12 @@ class LoupGarouGame(arcade.Window):
                 self.current_message_full = debate_message
                 self.current_message_display = ""
                 
-                # Le message de l'orateur est ajouté à l'historique de tous les autres
                 for listener in [p for p in alive_ais if p != speaker]:
                     listener.receive_public_message(speaker.name, debate_message)
                     
                 self.messages_generated += 1 
 
-    def _enter_human_voting_state(self):
+    def enter_human_voting_state(self):
         """Prépare les boutons pour le vote de lynchage du joueur humain."""
         alive = self.game_manager.get_alive_players()
         self.action_buttons = []
@@ -368,7 +568,8 @@ class LoupGarouGame(arcade.Window):
         
         voting_targets = [p for p in alive if p != self.human_player]
         
-        start_x = SCREEN_WIDTH / 2 - (len(voting_targets) * (button_width + 10) / 2) + 50
+        CENTER_X = SCREEN_WIDTH / 2 
+        start_x = CENTER_X - (len(voting_targets) * (button_width + 10) / 2)
         
         for i, target in enumerate(voting_targets):
             x = start_x + (i * (button_width + 10))
@@ -381,34 +582,35 @@ class LoupGarouGame(arcade.Window):
         self.log_messages.append(f"-> {self.human_player.name}, choisis ta victime (CLIC) :")
 
 
-    def _draw_log(self):
-        # --- LOGIQUE DE DESSIN DU LOG AMÉLIORÉE ---
+    
+    def draw_log(self):
+        """Dessine le Journal de Bord (Historique Permanent) à GAUCHE."""
         LOG_X_START = 10
-        LOG_Y_START = 10
         LOG_WIDTH = SCREEN_WIDTH // 3 
         LOG_HEIGHT = SCREEN_HEIGHT - 40 
         
-        # 1. Dessiner un fond sombre (semi-transparent) pour le log
         arcade.draw_lbwh_rectangle_filled(
             LOG_X_START, 
-            LOG_Y_START, 
+            10, 
             LOG_WIDTH, 
             LOG_HEIGHT, 
             (20, 20, 20, 180) 
         )
-        
+       
         x_pos = LOG_X_START + 10
-        y_pos = SCREEN_HEIGHT - 30
-        line_spacing = 18 
-        font_size = 12 
+        y_pos = SCREEN_HEIGHT - 30 
+        line_spacing = 85 
+        font_size = 14 
         
+       
         arcade.draw_text("JOURNAL DE BORD:", x_pos, y_pos, arcade.color.ORANGE_RED, 14)
-        y_pos -= 25 
+        y_pos -= 30 
         
-        for msg in self.log_messages[-30:]:
+      
+        for msg in reversed(self.log_messages):
             if y_pos < 50: 
                 break
-                
+            
             arcade.draw_text(
                 msg, 
                 x_pos, 
@@ -420,30 +622,63 @@ class LoupGarouGame(arcade.Window):
             )
             y_pos -= line_spacing 
             
-    def _draw_status(self):
+    def draw_status(self):
+        """Dessine les compteurs (Loups, Timer) à DROITE, en haut."""
+        
+        PANEL_WIDTH = SCREEN_WIDTH // 3
+        RIGHT_PANEL_START_X = SCREEN_WIDTH - PANEL_WIDTH
+        
+        
         arcade.draw_text(
             f"Loups Vivants : {self.game_manager.wolves_alive}",
-            SCREEN_WIDTH - 200, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16
+            RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16
         )
+        
         if self.current_state in [GameState.DEBATE, GameState.VOTING, GameState.HUMAN_ACTION]:
              arcade.draw_text(
                 f"Temps Restant : {int(self.debate_timer)}s",
-                SCREEN_WIDTH - 200, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
+                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
+            )
+       
+        if self.current_state == GameState.NIGHT_HUMAN_ACTION:
+             arcade.draw_text(
+                f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})",
+                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 200, arcade.color.ORANGE, 16
             )
 
-    def _draw_typing_message(self):
-        if self.current_speaker and self.current_message_display != self.current_message_full:
+    def draw_typing_message_right(self):
+        """Dessine le message en cours de frappe de l'IA (zone de 'chat actif' persistant) à DROITE."""
+        if self.current_speaker is not None: 
+            
+            PANEL_WIDTH = SCREEN_WIDTH // 3
+            RIGHT_PANEL_START_X = SCREEN_WIDTH - PANEL_WIDTH
+            
+            is_typing = (not self.message_is_complete)
+           
+            title_text = f"💬 {self.current_speaker.name} tape..." if is_typing else f"🗣️ {self.current_speaker.name} a dit:"
+            title_color = arcade.color.AZURE if is_typing else arcade.color.WHITE
+            
             arcade.draw_text(
-                f"💬 {self.current_speaker.name} tape...",
-                SCREEN_WIDTH / 2, 50, arcade.color.AZURE, 16, anchor_x="center"
+                title_text,
+                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 100, title_color, 16, anchor_x="left"
             )
+            
+           
+            cursor = ("|" if is_typing and int(time.time() * 2) % 2 == 0 else "")
+            
+           
+            display_text = self.current_message_display if is_typing else self.current_message_full
+            
             arcade.draw_text(
-                self.current_message_display,
-                SCREEN_WIDTH / 2, 30, arcade.color.LIGHT_GRAY, 12, anchor_x="center"
+                f"{display_text}{cursor}",
+                RIGHT_PANEL_START_X + 20, 
+                SCREEN_HEIGHT - 130, 
+                arcade.color.LIGHT_GRAY, 
+                14, 
+                width=PANEL_WIDTH - 40,
+                multiline=True
             )
 
-
-# --- Lancement du Jeu ---
 
 def main():
     """Fonction principale pour lancer l'application Arcade."""
@@ -452,11 +687,13 @@ def main():
 
 
 if __name__ == "__main__":
-    import os
+    
+   
     if not os.path.exists("context"):
         os.makedirs("context")
         for i in range(1, 10):
-            with open(f"context/perso_{i}.txt", "w", encoding="utf-8") as f:
+            with open(f"context/perso_placeholder_{i}.txt", "w", encoding="utf-8") as f:
                 f.write(f"Tu es l'IA {i}. Ton rôle est d'être un joueur de Loup Garou. Réponds de manière concise.")
 
     main()
+
