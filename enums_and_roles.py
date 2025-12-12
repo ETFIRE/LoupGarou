@@ -1,4 +1,4 @@
-# enums_and_roles.py
+
 
 from enum import Enum
 
@@ -19,7 +19,7 @@ class Role:
         self.camp = camp
         self.night_action = night_action
 
-# Définition des Rôles utilisés dans la partie (10 joueurs)
+
 ROLES_POOL = {
     "LoupGarou1": Role("Loup-Garou", Camp.LOUP, NightAction.KILL),
     "LoupGarou2": Role("Loup-Garou", Camp.LOUP, NightAction.KILL),

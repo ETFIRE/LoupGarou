@@ -1,10 +1,3 @@
-# Dans GameManager._setup_players ou _distribute_roles : j assignes d’abord le rôle.
-
-# Ensuite je choisis une personnalité adaptée via ce mapping et passes le bon context_path au ChatAgent 
-# ce code constitue un gros pool de personnalités variées,
-# un mapping préférences de rôle → types de personnalités,
-# une fonction utilitaire pour tirer une personnalité avec biais mais pas déterministe,
-# une version maj de _distribute_roles dans GameManager.
 
 import random
 
@@ -64,8 +57,6 @@ PERSONALITIES_POOL = [
     
     ]
 
-# MAPPING ROLE
-# ce ne sont que des préférences pas des obligations
 ROLE_TO_PERSONALITIES = {
     "Sorcière": [
         "Médium Mystique",
@@ -134,11 +125,11 @@ def pick_personality_for_role(role_name: str, bias_probability: float = 0.6) -> 
     use_bias = preferred_names and (random.random() < bias_probability)
 
     if use_bias:
-        # On pioche dans les personnalités préférées du rôle
+       
         chosen_name = random.choice(preferred_names)
         personality = get_personality_by_name(chosen_name)
         if personality:
             return personality
 
-    # Sinon, ou si on n'a pas trouvé : tirage totalement aléatoire dans le pool global
+    
     return random.choice(PERSONALITIES_POOL)

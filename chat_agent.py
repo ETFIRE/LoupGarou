@@ -1,6 +1,4 @@
-# chat_agent.py
 
-# -*- coding: utf-8 -*-
 from groq import Groq
 from dotenv import load_dotenv
 import os
@@ -8,10 +6,10 @@ import json
 import random 
 from enum import Enum 
 
-# --- Importations des définitions de jeu ---
+
 from enums_and_roles import Camp, NightAction, Role 
 
-# --- Dépendance de Player (Mockée pour éviter la boucle d'importation) ---
+
 # NOTE: Cette classe doit correspondre à la structure de Player/ChatAgent dans game_core.py
 class Player:
     def __init__(self, name, is_human=False):
@@ -33,14 +31,14 @@ class ChatAgent(Player):
     Représente un joueur IA. Gère l'historique isolé, la personnalité et l'API LLM (via Groq).
     """
     
-    # CONSERVATION DU MODÈLE DEMANDÉ
+    
     large_language_model = "llama-3.3-70b-versatile" 
     
     def __init__(self, name, personality_context_path, is_human=False):
         
         super().__init__(name, is_human)
         
-        # Vérification GROQ KEY
+       
         if "GROQ_KEY" not in os.environ:
              raise EnvironmentError("GROQ_KEY non trouvée. Assurez-vous d'avoir un fichier .env.")
              
@@ -49,13 +47,13 @@ class ChatAgent(Player):
         self.history = [] 
         self.initiate_history()
 
-    # --- SETUP & UTILITAIRES ---
+    
 
     def initiate_history(self):
         """Initialise/réinitialise l'historique avec le contexte de personnalité."""
         personality_context = self._read_file(self.personality_context_path)
         
-        # Consigne d'agressivité insérée dans le système
+        
         system_instruction = (
             "Tu es un joueur de Loup Garou. Ton but est de manipuler la discussion. "
             "Sois toujours actif, jamais neutre. Accuse, défends-toi, ou retourne la situation avec force. "
@@ -74,7 +72,6 @@ class ChatAgent(Player):
              return "You are a helpful and friendly assistant."
              
 
-    # --- GESTION DE L'HISTORIQUE ---
 
     def _update_history(self, role, content):
          """Ajoute une interaction à l'historique isolé."""
@@ -100,7 +97,7 @@ class ChatAgent(Player):
             
         return normalized_history
 
-    # --- MÉTHODES LLM ---
+   
 
     def ask_llm(self, user_interaction):
         """Mode Texte Simple : Envoie l'interaction LLM et met à jour l'historique."""
@@ -111,7 +108,7 @@ class ChatAgent(Player):
             response = self.client.chat.completions.create(
                 messages=normalized_history,
                 model=self.large_language_model, 
-                temperature=0.9 # Augmenter la température pour plus d'imprévisibilité
+                temperature=0.9 
             ).choices[0].message.content
             
             self._update_history(role="assistant", content=response)
@@ -144,9 +141,9 @@ class ChatAgent(Player):
              return response.strip()
          except Exception as e:
              print(f"Erreur GROQ API (Décision) : {e}")
-             # Retourne un nom aléatoire en cas d'échec pour débloquer le jeu
+             
              # NOTE : Nécessite l'accès à la liste des joueurs vivants, ce qui n'est pas possible ici.
-             return "Maître Simon" # Nom par défaut si l'API échoue
+             return "Maître Simon" 
 
     def decide_night_action(self, alive_players):
          """Demande au LLM de choisir une cible pour son action de nuit."""
@@ -170,7 +167,7 @@ class ChatAgent(Player):
          """Demande au LLM de choisir sa victime pour le lynchage de jour (Moins Docile)."""
          alive_names = [p['name'] for p in public_status if p['is_alive'] and p['name'] != self.name]
          
-         # --- CONSIGNES DE VOTE AGRESSIVES ---
+         
          if self.role.camp == Camp.LOUP:
              vote_instruction = "Tu es Loup-Garou. Vote CONTRE le Villageois le plus dangereux ou qui t'accuse. Ne vote JAMAIS contre tes alliés."
          else:
@@ -186,7 +183,7 @@ class ChatAgent(Player):
          
          voted_name = self._prompt_llm_for_decision(prompt, self.large_language_model)
          
-         # Vérification pour s'assurer que la réponse est un nom valide (sinon vote aléatoire)
+        
          if voted_name and voted_name in alive_names:
              return voted_name
          
@@ -204,7 +201,6 @@ class ChatAgent(Player):
          
          is_accused = any(self.name in msg['content'] for msg in self.history[-5:] if msg['role'] == 'user')
          
-         # --- 1. LOGIQUE DE LA VOYANTE FORCÉE À RÉVÉLER UN LOUP (Contrer la domination) ---
          is_voyante = (self.role.name == "Voyante")
          found_wolf_info = next((
              msg['content'] for msg in self.history 
@@ -212,28 +208,28 @@ class ChatAgent(Player):
          ), None)
          
          if is_voyante and found_wolf_info:
-             # Révélation stratégique d'une information vérifiée
+             
              instruction = (
                  f"Tu es la Voyante. Tu as une preuve DIRECTE: '{found_wolf_info}'. "
                  "RÉVÈLE IMMÉDIATEMENT le joueur que tu as vu comme étant LOUP. "
                  "Utilise ta personnalité de {self.role.name} pour convaincre le village de ta vérité, mais sois prudent(e). "
              )
          
-         # --- 2. LOGIQUE D'AGRESSION GÉNÉRALE ---
+        
          elif is_accused:
-             # Réponse AGRESSIVE : Défense/Contre-attaque
+             
              instruction = (
                  f"On t'accuse ! Utilise ta personnalité de {self.role.name} pour TE DÉFENDRE VIRULEMMENT et CONTRE-ATTAQUER. "
                  "Réfute l'accusation en la retournant contre ton accusateur. Ne sois pas passif. "
              )
          else:
-             # Réponse AGRESSIVE : Attaque obligatoire
+             
              instruction = (
                  f"Nous sommes en débat. Utilise ta personnalité de {self.role.name} pour ACCUSER DIRECTEMENT QUELQU'UN. "
                  "Cherche les contradictions, les silences ou attaque le joueur qui est le moins accusé. Ne reste JAMAIS neutre. "
              )
  
-         # Instructions pour le ton et la concision (augmente l'imprévisibilité)
+        
          general_instruction = (
              f"Ton rôle est {self.role.name} ({self.role.camp.value}). Consulte ton historique (TON SEUL GUIDE). "
              f"RÉPONDS AVEC UN MESSAGE TRES COURT, PERCUTANT ET DIRECT (MAXIMUM 20 MOTS). "
