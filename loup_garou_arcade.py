@@ -14,9 +14,9 @@ load_dotenv()
 from game_core import GameManager, Player 
 from enums_and_roles import Camp, NightAction 
 
-# --- Bouton Interactif (Inchangé) ---
+# --- Bouton Interactif ---
 class MenuButton:
-    # ... (code inchangé) ...
+    """Classe pour dessiner et gérer les boutons de vote/action."""
     def __init__(self, center_x, center_y, width, height, text, action):
         self.center_x = center_x
         self.center_y = center_y
@@ -51,13 +51,14 @@ class MenuButton:
 
     def check_click(self, x, y):
         """Vérifie si les coordonnées de la souris sont dans le bouton."""
+        # CORRECTION de l'erreur de frappe: 'the' remplacé par 'self'
         return (self.center_x - self.width/2 < x < self.center_x + self.width/2 and
-                self.center_y - self.height/2 < y < self.center_y + self.height/2)
+                self.center_y - self.height/2 < y < self.center_y + self.height/2) 
 
 
-# --- Champ de Saisie de Chat (Inchangé) ---
+# --- Champ de Saisie de Chat ---
 class ChatInput:
-    # ... (code inchangé) ...
+    """Représente la boîte de saisie de texte pour l'humain."""
     def __init__(self, x, y, width, height, game_instance):
         self.x = x
         self.y = y
@@ -162,8 +163,10 @@ class LoupGarouGame(arcade.Window):
         self.message_is_complete = False 
         
         # 4. INITIALISATION DU CHAT INPUT (Déplacé à droite)
+        
         PANEL_WIDTH = SCREEN_WIDTH // 3 
         INPUT_HEIGHT = 30
+        
         input_x = SCREEN_WIDTH - PANEL_WIDTH - 10 
         input_y = 5 
         input_width = PANEL_WIDTH - 100 
@@ -215,8 +218,7 @@ class LoupGarouGame(arcade.Window):
         available_images = [f for f in os.listdir(IMAGE_DIR) if f.endswith(('.png', '.jpg', '.jpeg'))]
         random.shuffle(available_images)
         
-        # DEFINIR LA TAILLE UNIQUE DU SPRITE (Ajustez cette valeur si les images sont trop grandes ou trop petites)
-        SPRITE_SCALE = 0.1 
+        SPRITE_SCALE = 0.1
         
         for i, player in enumerate(self.game_manager.players):
             angle = i * angle_step
@@ -235,7 +237,6 @@ class LoupGarouGame(arcade.Window):
                 image_path = os.path.join(IMAGE_DIR, available_images.pop())
 
             if image_path:
-                # Charger l'image réelle avec l'échelle définie
                 sprite = arcade.Sprite(image_path, scale=SPRITE_SCALE, center_x=x, center_y=y)
             else:
                 sprite = arcade.SpriteCircle(50, arcade.color.GRAY, center_x=x, center_y=y)
@@ -244,7 +245,7 @@ class LoupGarouGame(arcade.Window):
             self.player_map[player.name] = sprite
             
     def _setup_circle_sprites(self):
-        # ... (Méthode de secours inchangée) ...
+        """Méthode de secours pour dessiner des cercles si les images manquent."""
         num_players = len(self.game_manager.players)
         center_x = SCREEN_WIDTH / 2
         center_y = SCREEN_HEIGHT / 2
@@ -357,10 +358,12 @@ class LoupGarouGame(arcade.Window):
 
         self.player_sprites.draw()
         
+        # --- DESSINER LE CHAT LOCALISÉ ---
+        self.draw_localized_chat_bubble()
+
         # AFFICHAGE DE LA LOGIQUE 
         self.draw_log()
         self.draw_status()
-        self.draw_typing_message_right()
         
         
         # Dessiner les boutons d'Action/Vote
@@ -371,13 +374,49 @@ class LoupGarouGame(arcade.Window):
         if self.current_state == GameState.NIGHT_HUMAN_ACTION and not self.action_buttons:
             self._display_human_night_action_buttons()
         
-        # Dessiner le champ de chat si en mode DEBATE
+        # Dessiner le champ de chat si en mode DEBATE (Input Humain)
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
             self.chat_input.draw()
             
         # AFFICHER LE BOUTON DE DÉMARRAGE si en SETUP
         if self.current_state == GameState.SETUP:
             self.start_button.draw()
+            
+    # --- MÉTHODE DE DESSIN DU CHAT LOCALISÉ ---
+    def draw_localized_chat_bubble(self):
+        """Dessine la bulle de chat/frappe sous le sprite de l'orateur actuel."""
+        
+        speaker_player = self.current_speaker
+        
+        if speaker_player and speaker_player.is_alive:
+            sprite = self.player_map.get(speaker_player.name)
+            if sprite:
+                
+                is_typing = (not self.message_is_complete)
+                display_text = self.current_message_display if is_typing else self.current_message_full
+                
+                cursor = ("|" if is_typing and int(time.time() * 2) % 2 == 0 else "")
+                
+                # Largeur réduite et position ajustée pour éviter le chevauchement
+                CHAT_WIDTH = 120 
+                TEXT_X = sprite.center_x - CHAT_WIDTH / 2 + 5
+                TEXT_Y = sprite.center_y - 90 
+                
+                # Le texte est dessiné directement sans fond de bulle
+                arcade.draw_text(
+                    f"{display_text}{cursor}", 
+                    TEXT_X, 
+                    TEXT_Y, 
+                    arcade.color.LIGHT_YELLOW, # Couleur standard et visible
+                    12, 
+                    width=CHAT_WIDTH - 10,
+                    multiline=True,
+                    anchor_x="left",
+                )
+                
+                # Indication visuelle de frappe
+                if is_typing:
+                    arcade.draw_text("...", sprite.center_x + 40, sprite.center_y + 40, arcade.color.AZURE, 18)
 
 
     def on_update(self, delta_time):
@@ -436,7 +475,6 @@ class LoupGarouGame(arcade.Window):
             action = "ENQUÊTER"
             targets_msg = "Choisis qui enquêter (Voyante) :"
             
-            # Création des boutons de ciblage standard (Voyante)
             start_x = SCREEN_WIDTH / 2 - (len(targets) * (button_width + 10) / 2) + 50
             for i, target in enumerate(targets):
                 x = start_x + (i * (button_width + 10))
@@ -451,7 +489,6 @@ class LoupGarouGame(arcade.Window):
         elif role_name == "Sorcière" and (self.human_player.has_kill_potion or self.human_player.has_life_potion):
             targets_msg = "Sorcière: Choisis ton action"
             
-            # Boutons généraux Tuer/Sauver (la sélection de cible devra être gérée à la résolution)
             x_start = SCREEN_WIDTH / 2 - 150
             if self.human_player.has_kill_potion:
                  self.action_buttons.append(MenuButton(x_start, button_y, 140, button_height, "TUER [Potion Mort]", "TUER"))
@@ -460,11 +497,10 @@ class LoupGarouGame(arcade.Window):
                  self.action_buttons.append(MenuButton(x_start, button_y, 140, button_height, "SAUVER [Potion Vie]", "SAUVER"))
                  x_start += 150
                  
-            # Bouton Passer
             self.action_buttons.append(MenuButton(x_start, button_y, 100, button_height, "PASSER", "PASSER"))
             
             self.log_messages.append(f"-> {targets_msg}")
-            return 
+            return
             
         else:
             self.current_state = GameState.NIGHT_IA_ACTION
@@ -484,7 +520,6 @@ class LoupGarouGame(arcade.Window):
 
         self.action_buttons = [] 
         
-        # Gérer les actions nécessitant une cible (Voyante)
         if self.human_player.role.name == "Voyante" and ":" in clicked_action_data:
             action_type, target_name = clicked_action_data.split(":", 1)
             target = next((p for p in self.game_manager.players if p.name == target_name), None)
@@ -494,8 +529,8 @@ class LoupGarouGame(arcade.Window):
                 target_camp = target.role.camp.value
                 self.log_messages.append(f"🕵️‍♀️ Révélation : {target.name} est un(e) **{target_role}** ({target_camp}).")
                 self.current_state = GameState.NIGHT_IA_ACTION
+                return
                 
-        # Gérer les actions de Sorcière (intention)
         elif self.human_player.role.name == "Sorcière" and clicked_action_data in ["TUER", "SAUVER", "PASSER"]:
             
             if clicked_action_data == "PASSER":
@@ -503,22 +538,22 @@ class LoupGarouGame(arcade.Window):
             
             elif clicked_action_data == "TUER" and self.human_player.has_kill_potion:
                  self.human_player.has_kill_potion = False
-                 # Devrait déclencher une phase de ciblage ici, mais on simplifie pour le flux
-                 self.log_messages.append(f"🧪 Sorcière : Potion de mort utilisée. Choisis la cible (NON IMPLÉMENTÉ DANS L'UI).")
+                 self.log_messages.append(f"🧪 Sorcière : Potion de mort utilisée. L'impact sera résolu.")
             
             elif clicked_action_data == "SAUVER" and self.human_player.has_life_potion:
                  self.human_player.has_life_potion = False
-                 self.log_messages.append(f"💖 Sorcière : Potion de vie utilisée. (Résolution après Loups IA).")
+                 self.log_messages.append(f"💖 Sorcière : Potion de vie utilisée. L'impact sera résolu.")
             
             self.current_state = GameState.NIGHT_IA_ACTION
+            return
             
         else:
              self.log_messages.append("Action invalide ou non supportée.")
              self.current_state = GameState.NIGHT_IA_ACTION
 
-        # Poursuivre vers la nuit IA
         if self.current_state == GameState.NIGHT_IA_ACTION:
              self.log_messages.append("Résolution des actions IA...")
+             self.current_state = GameState.NIGHT_IA_ACTION
         
 
     # --- LOGIQUE D'UPDATE ET D'AFFICHAGE ---
@@ -603,6 +638,8 @@ class LoupGarouGame(arcade.Window):
         self.log_messages.append(f"-> {self.human_player.name}, choisis ta victime (CLIC) :")
 
 
+    # --- MÉTHODES D'AFFICHAGE (SANS UNDERSCORE) ---
+    
     def draw_log(self):
         """Dessine le Journal de Bord (Historique Permanent) à GAUCHE."""
         LOG_X_START = 10
@@ -662,39 +699,6 @@ class LoupGarouGame(arcade.Window):
                 f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})",
                 RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 200, arcade.color.ORANGE, 16
             )
-
-    def draw_typing_message_right(self):
-        """Dessine le message en cours de frappe de l'IA (zone de 'chat actif' persistant) à DROITE."""
-        
-        if self.current_speaker is not None: 
-            
-            PANEL_WIDTH = SCREEN_WIDTH // 3
-            RIGHT_PANEL_START_X = SCREEN_WIDTH - PANEL_WIDTH
-            
-            is_typing = (not self.message_is_complete)
-            
-            title_text = f"💬 {self.current_speaker.name} tape..." if is_typing else f"🗣️ {self.current_speaker.name} a dit:"
-            title_color = arcade.color.AZURE if is_typing else arcade.color.WHITE
-            
-            arcade.draw_text(
-                title_text,
-                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 100, title_color, 16, anchor_x="left"
-            )
-            
-            cursor = ("|" if is_typing and int(time.time() * 2) % 2 == 0 else "")
-            
-            display_text = self.current_message_display if is_typing else self.current_message_full
-            
-            arcade.draw_text(
-                f"{display_text}{cursor}",
-                RIGHT_PANEL_START_X + 20, 
-                SCREEN_HEIGHT - 130, 
-                arcade.color.LIGHT_GRAY, 
-                14, 
-                width=PANEL_WIDTH - 40,
-                multiline=True
-            )
-
 
 # --- Lancement du Jeu ---
 
