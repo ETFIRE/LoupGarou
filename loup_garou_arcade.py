@@ -8,6 +8,8 @@ from enum import Enum
 import math
 import os
 from dotenv import load_dotenv
+
+# Charger les variables d'environnement (y compris GROQ_API_KEY)
 load_dotenv() 
 
 # Importation de vos classes de jeu
@@ -33,6 +35,7 @@ class MenuButton:
             "PASSER": arcade.color.YELLOW_ORANGE,
             "Voter": arcade.color.DARK_RED,
             "COMMENCER": arcade.color.DARK_GREEN,
+            "Envoyer": arcade.color.DARK_CYAN,
             "DEFAULT": arcade.color.DARK_BLUE
         }
         
@@ -47,11 +50,10 @@ class MenuButton:
             color
         )
         arcade.draw_text(self.text, self.center_x, self.center_y,
-                         arcade.color.WHITE, 12, anchor_x="center", anchor_y="center")
+                          arcade.color.WHITE, 12, anchor_x="center", anchor_y="center")
 
     def check_click(self, x, y):
         """Vérifie si les coordonnées de la souris sont dans le bouton."""
-        # CORRECTION de l'erreur de frappe: 'the' remplacé par 'self'
         return (self.center_x - self.width/2 < x < self.center_x + self.width/2 and
                 self.center_y - self.height/2 < y < self.center_y + self.height/2) 
 
@@ -75,12 +77,22 @@ class ChatInput:
         
         cursor = ("|" if self.active and int(time.time() * 2) % 2 == 0 else "")
         arcade.draw_text(self.text + cursor, 
-                         self.x + 5, self.y + 5, 
-                         arcade.color.BLACK, 14)
+                          self.x + 5, self.y + 5, 
+                          arcade.color.BLACK, 14)
         
         if self.send_button:
             self.send_button.draw()
-
+            
+    def update_position(self, x, y, width):
+        """Met à jour la position et la taille après un redimensionnement."""
+        self.x = x
+        self.y = y
+        self.width = width
+        
+        if self.send_button:
+            self.send_button.center_x = x + width + 50
+            self.send_button.center_y = y + self.height / 2
+            
     def handle_key_press(self, symbol):
         if self.active:
             if symbol == arcade.key.ENTER:
@@ -89,13 +101,19 @@ class ChatInput:
                 self.text = self.text[:-1]
             else:
                 try:
+                    # Gère les caractères imprimables, y compris les majuscules/minuscules
                     char = chr(symbol)
                     if char.isprintable(): 
                         if len(self.text) < 80: 
-                            self.text += char
+                            self.text += char.lower() if not (modifiers & arcade.key.LSHIFT or modifiers & arcade.key.RSHIFT) else char.upper()
+                            
+                    # Gère le cas spécial du tiret
+                    if symbol == arcade.key.MINUS:
+                         self.text += '-'
+
                 except ValueError:
                     pass
-            
+                
     def send_message(self):
         if self.text.strip():
             message = self.text.strip()
@@ -107,7 +125,7 @@ class ChatInput:
                 listener.receive_public_message(self.game.human_player.name, message)
             
             self.text = ""
-            self.game.current_speaker = None 
+            self.game.current_speaker = None # Annule l'affichage de l'IA le temps du tour humain
             
     def check_click(self, x, y):
         is_in_input = (self.x < x < self.x + self.width and self.y < y < self.y + self.height)
@@ -119,6 +137,7 @@ class ChatInput:
 
 
 # --- Paramètres de la Fenêtre & États ---
+# Ces valeurs sont utilisées comme tailles INITIALES
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
@@ -126,9 +145,9 @@ SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
 class GameState(Enum):
     SETUP = 1 
     NIGHT_HUMAN_ACTION = 2 
-    NIGHT_IA_ACTION = 3    
+    NIGHT_IA_ACTION = 3     
     DEBATE = 4
-    HUMAN_ACTION = 5    
+    HUMAN_ACTION = 5     
     VOTING = 6
     RESULT = 7
     GAME_OVER = 8
@@ -138,42 +157,62 @@ class LoupGarouGame(arcade.Window):
     
     def __init__(self, width, height, title, human_name="Humain_Lucie"):
         
-        super().__init__(width, height, title)
+        # 1. INITIALISATION EN MODE REDIMENSIONNABLE ET PLEIN ÉCRAN
+        super().__init__(width, height, title, resizable=True)
+        self.set_fullscreen(True) # <- Activation du mode Plein Écran
+        
+        # self.width et self.height sont désormais les dimensions de l'écran
         arcade.set_background_color(arcade.color.DARK_BLUE_GRAY)
 
-        # 1. Initialisation du Moteur de Jeu
+        # 2. Initialisation du Moteur de Jeu
         self.game_manager = GameManager(human_player_name=human_name)
         self.human_player = self.game_manager.human_player
         
-        # 2. Variables d'Affichage et Log
+        # 3. Variables d'Affichage et Log
         self.log_messages = [] 
         self.player_sprites = arcade.SpriteList()
         self.player_map = {} 
         self.action_buttons = []
         
-        # 3. Gestion du Temps et Vitesse d'écriture (Débat)
+        # 4. Gestion du Temps et Vitesse d'écriture (Débat)
         self.debate_timer = 60 
         self.current_speaker = None
         self.current_message_full = ""
         self.current_message_display = ""
         self.typing_speed_counter = 0 
-        self.typing_delay = 5           
+        self.typing_delay = 5          
         self.messages_generated = 0           
         self.max_messages_per_debate = 10     
         self.message_is_complete = False 
         
-        # 4. INITIALISATION DU CHAT INPUT (Déplacé à droite)
+        # 5. INITIALISATION DES ÉLÉMENTS D'INTERFACE UTILISATEUR
+        self._setup_ui_elements() 
         
-        PANEL_WIDTH = SCREEN_WIDTH // 3 
+        # 6. Initialisation des Sprites
+        self._setup_sprites()
+        
+        # 7. Commencer le jeu
+        self.start_game_loop()
+
+    def _setup_ui_elements(self):
+        """Initialise/Recalcule la position des éléments d'interface (Chat, Boutons)."""
+        
+        # Utiliser self.width et self.height qui sont les dimensions actuelles de l'écran
+        PANEL_WIDTH = self.width // 3 
         INPUT_HEIGHT = 30
         
-        input_x = SCREEN_WIDTH - PANEL_WIDTH - 10 
+        input_x = self.width - PANEL_WIDTH - 10 
         input_y = 5 
         input_width = PANEL_WIDTH - 100 
         
-        self.chat_input = ChatInput(input_x, input_y, input_width, INPUT_HEIGHT, self)
+        # Réinitialiser ou mettre à jour le Chat Input
+        if not hasattr(self, 'chat_input'):
+            self.chat_input = ChatInput(input_x, input_y, input_width, INPUT_HEIGHT, self)
+        else:
+            self.chat_input.update_position(input_x, input_y, input_width)
         
-        self.chat_input.send_button = MenuButton(
+        # Bouton d'envoi du chat
+        send_btn = MenuButton(
             input_x + input_width + 50, 
             input_y + INPUT_HEIGHT / 2, 
             90, 
@@ -181,23 +220,18 @@ class LoupGarouGame(arcade.Window):
             "Envoyer", 
             None
         )
-        
+        self.chat_input.send_button = send_btn
+
+        # Bouton de démarrage
         self.start_button = MenuButton(
-            SCREEN_WIDTH / 2, 
-            SCREEN_HEIGHT / 2, 
+            self.width / 2, 
+            self.height / 2, 
             300, 
             60, 
             "COMMENCER LA PARTIE", 
             "start_game"
         )
         
-        # Initialisation des Sprites
-        self._setup_sprites()
-        
-        # Commencer le jeu
-        self.start_game_loop()
-
-    
     def _setup_sprites(self):
         """
         Crée les représentations visuelles des joueurs en chargeant des images.
@@ -209,22 +243,22 @@ class LoupGarouGame(arcade.Window):
             print(f"ATTENTION : Le dossier '{IMAGE_DIR}' n'existe pas. Utilisation de ronds par défaut.")
             return self._setup_circle_sprites() 
 
-
         num_players = len(self.game_manager.players)
-        center_x = SCREEN_WIDTH / 2
-        center_y = SCREEN_HEIGHT / 2
+        center_x = self.width / 2
+        center_y = self.height / 2
         angle_step = 360 / num_players
         
         available_images = [f for f in os.listdir(IMAGE_DIR) if f.endswith(('.png', '.jpg', '.jpeg'))]
         random.shuffle(available_images)
         
         SPRITE_SCALE = 0.1
+        CIRCLE_RADIUS = min(self.width, self.height) * 0.35 # Rayon ajusté dynamiquement
         
         for i, player in enumerate(self.game_manager.players):
             angle = i * angle_step
             rad_angle = math.radians(angle)
-            x = center_x + 250 * math.cos(rad_angle)
-            y = center_y + 250 * math.sin(rad_angle)
+            x = center_x + CIRCLE_RADIUS * math.cos(rad_angle)
+            y = center_y + CIRCLE_RADIUS * math.sin(rad_angle)
             
             image_path = None
 
@@ -247,14 +281,16 @@ class LoupGarouGame(arcade.Window):
     def _setup_circle_sprites(self):
         """Méthode de secours pour dessiner des cercles si les images manquent."""
         num_players = len(self.game_manager.players)
-        center_x = SCREEN_WIDTH / 2
-        center_y = SCREEN_HEIGHT / 2
+        center_x = self.width / 2
+        center_y = self.height / 2
         angle_step = 360 / num_players
+        CIRCLE_RADIUS = min(self.width, self.height) * 0.35
+        
         for i, player in enumerate(self.game_manager.players):
             angle = i * angle_step
             rad_angle = math.radians(angle)
-            x = center_x + 250 * math.cos(rad_angle)
-            y = center_y + 250 * math.sin(rad_angle)
+            x = center_x + CIRCLE_RADIUS * math.cos(rad_angle)
+            y = center_y + CIRCLE_RADIUS * math.sin(rad_angle)
             color = arcade.color.GREEN 
             sprite = arcade.SpriteCircle(50, color, center_x=x, center_y=y)
             self.player_sprites.append(sprite)
@@ -280,6 +316,8 @@ class LoupGarouGame(arcade.Window):
         
         if self.current_state == GameState.SETUP:
             if self.start_button.check_click(x, y):
+                # Mise à jour : le premier tour de nuit passe directement à l'action IA 
+                # si l'humain n'a pas de rôle actif de nuit (Voyante/Sorcière)
                 if self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
                     self.current_state = GameState.NIGHT_HUMAN_ACTION
                     self.log_messages.append(f"\nJOUR 1 : La NUIT tombe. Exécute ton action de {self.human_player.role.name}.")
@@ -304,13 +342,33 @@ class LoupGarouGame(arcade.Window):
         elif self.current_state == GameState.NIGHT_HUMAN_ACTION:
              self._handle_human_night_action_click(x, y)
 
-
+    def on_resize(self, width, height):
+        """
+        Appelée chaque fois que la fenêtre est redimensionnée (y compris
+        lors du passage en plein écran/fenêtré).
+        """
+        super().on_resize(width, height)
+        
+        
+        # Recalcule les positions de l'interface utilisateur
+        self._setup_ui_elements()
+        
+        # Recalcule la position des sprites
+        self.player_sprites = arcade.SpriteList() # Vide l'ancienne liste
+        self.player_map = {} 
+        self._setup_sprites()
+        
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
         
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
             self.chat_input.handle_key_press(symbol)
         
+        # Gère la touche F pour basculer en mode plein écran/fenêtré
+        if symbol == arcade.key.F:
+            self.set_fullscreen(not self.fullscreen)
+            # Pas besoin de on_resize, car set_fullscreen l'appelle automatiquement
+
         elif symbol == arcade.key.SPACE:
             if self.current_state == GameState.DEBATE:
                 self.debate_timer = 0 
@@ -448,13 +506,14 @@ class LoupGarouGame(arcade.Window):
                  self.log_messages.append(f"\n🎉 VICTOIRE des {winner.value} ! Fin de la partie.")
                  self.current_state = GameState.GAME_OVER
             else:
-                 self.log_messages.append(f"\nJOUR {self.game_manager.day + 1} : La NUIT tombe.") 
+                 self.game_manager.day += 1 # Préparation pour le nouveau jour
+                 self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.") 
                  if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
                      self.current_state = GameState.NIGHT_HUMAN_ACTION
                  else:
                      self.current_state = GameState.NIGHT_IA_ACTION
 
-    
+        
     # --- LOGIQUE D'ACTION HUMAINE DE NUIT ---
 
     def _display_human_night_action_buttons(self):
@@ -475,7 +534,8 @@ class LoupGarouGame(arcade.Window):
             action = "ENQUÊTER"
             targets_msg = "Choisis qui enquêter (Voyante) :"
             
-            start_x = SCREEN_WIDTH / 2 - (len(targets) * (button_width + 10) / 2) + 50
+            # Calcule le point de départ centré
+            start_x = self.width / 2 - (len(targets) * (button_width + 10) / 2) + 50
             for i, target in enumerate(targets):
                 x = start_x + (i * (button_width + 10))
                 btn = MenuButton(
@@ -489,7 +549,7 @@ class LoupGarouGame(arcade.Window):
         elif role_name == "Sorcière" and (self.human_player.has_kill_potion or self.human_player.has_life_potion):
             targets_msg = "Sorcière: Choisis ton action"
             
-            x_start = SCREEN_WIDTH / 2 - 150
+            x_start = self.width / 2 - 150
             if self.human_player.has_kill_potion:
                  self.action_buttons.append(MenuButton(x_start, button_y, 140, button_height, "TUER [Potion Mort]", "TUER"))
                  x_start += 150
@@ -624,7 +684,7 @@ class LoupGarouGame(arcade.Window):
         
         voting_targets = [p for p in alive if p != self.human_player]
         
-        CENTER_X = SCREEN_WIDTH / 2 
+        CENTER_X = self.width / 2 
         start_x = CENTER_X - (len(voting_targets) * (button_width + 10) / 2)
         
         for i, target in enumerate(voting_targets):
@@ -643,8 +703,9 @@ class LoupGarouGame(arcade.Window):
     def draw_log(self):
         """Dessine le Journal de Bord (Historique Permanent) à GAUCHE."""
         LOG_X_START = 10
-        LOG_WIDTH = SCREEN_WIDTH // 5
-        LOG_HEIGHT = SCREEN_HEIGHT - 40 
+        # Utiliser un cinquième de la largeur de l'écran (self.width)
+        LOG_WIDTH = self.width // 5
+        LOG_HEIGHT = self.height - 40 
         
         arcade.draw_lbwh_rectangle_filled(
             LOG_X_START, 
@@ -655,7 +716,7 @@ class LoupGarouGame(arcade.Window):
         )
         
         x_pos = LOG_X_START + 10
-        y_pos = SCREEN_HEIGHT - 30 
+        y_pos = self.height - 30 
         line_spacing = 85 
         font_size = 14 
         
@@ -680,40 +741,47 @@ class LoupGarouGame(arcade.Window):
     def draw_status(self):
         """Dessine les compteurs (Loups, Timer) à DROITE, en haut."""
         
-        PANEL_WIDTH = SCREEN_WIDTH // 3
-        RIGHT_PANEL_START_X = SCREEN_WIDTH - PANEL_WIDTH
+        PANEL_WIDTH = self.width // 3
+        RIGHT_PANEL_START_X = self.width - PANEL_WIDTH
         
         arcade.draw_text(
             f"Loups Vivants : {self.game_manager.wolves_alive}",
-            RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16
+            RIGHT_PANEL_START_X + 20, self.height - 30, arcade.color.WHITE, 16
         )
         
         if self.current_state in [GameState.DEBATE, GameState.VOTING, GameState.HUMAN_ACTION]:
              arcade.draw_text(
                 f"Temps Restant : {int(self.debate_timer)}s",
-                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
+                RIGHT_PANEL_START_X + 20, self.height - 60, arcade.color.YELLOW, 14
             )
         
         if self.current_state == GameState.NIGHT_HUMAN_ACTION:
              arcade.draw_text(
                 f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})",
-                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 200, arcade.color.ORANGE, 16
+                RIGHT_PANEL_START_X + 20, self.height - 200, arcade.color.ORANGE, 16
             )
 
 # --- Lancement du Jeu ---
 
 def main():
     """Fonction principale pour lancer l'application Arcade."""
+    # Les tailles initiales 1000x700 sont fournies, mais set_fullscreen(True) les écrasera.
     game = LoupGarouGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
     arcade.run()
 
 
 if __name__ == "__main__":
     
+    # S'assure que les dossiers existent pour éviter des erreurs
     if not os.path.exists("context"):
         os.makedirs("context")
         for i in range(1, 10):
-            with open(f"context/perso_placeholder_{i}.txt", "w", encoding="utf-8") as f:
-                f.write(f"Tu es l'IA {i}. Ton rôle est d'être un joueur de Loup Garou. Réponds de manière concise.")
+            if not os.path.exists(f"context/perso_placeholder_{i}.txt"):
+                with open(f"context/perso_placeholder_{i}.txt", "w", encoding="utf-8") as f:
+                    f.write(f"Tu es l'IA {i}. Ton rôle est d'être un joueur de Loup Garou. Réponds de manière concise.")
+    
+    # Vous devriez également vérifier l'existence du dossier "images"
+    if not os.path.exists("images"):
+        os.makedirs("images")
 
     main()
