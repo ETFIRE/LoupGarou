@@ -164,11 +164,9 @@ class LoupGarouGame(arcade.Window):
         super().__init__(width, height, title, resizable=True)
         self.set_fullscreen(True)
         
-        # 2. Chargement du fond d'écran (Utilisation du Sprite comme contournement)
+        # 2. Chargement du fond d'écran
         BACKGROUND_IMAGE_PATH = "images/fond/images.png" 
         self.background_sprite = None
-        
-        # NOUVEAU: Liste de Sprites pour le fond d'écran
         self.background_list = arcade.SpriteList() 
         
         if os.path.exists(BACKGROUND_IMAGE_PATH):
@@ -176,26 +174,41 @@ class LoupGarouGame(arcade.Window):
                 BACKGROUND_IMAGE_PATH,
                 scale=1.0 
             )
-            # AJOUT : Nous ajoutons le sprite à la liste pour le dessin
             self.background_list.append(self.background_sprite) 
             print(f"Fond d'écran chargé comme Sprite.")
         else:
              print(f"ATTENTION : Image de fond non trouvée à '{BACKGROUND_IMAGE_PATH}'.")
-            
+             
+        # 3. Chargement du Sprite du FEU DE CAMP
+        CAMPFIRE_IMAGE_PATH = "images/fond/campfire.png" # <--- ASSUREZ-VOUS QUE CE CHEMIN EST CORRECT
+        self.campfire_sprite = None
+        self.campfire_list = arcade.SpriteList()
+        
+        if os.path.exists(CAMPFIRE_IMAGE_PATH):
+            # L'échelle (0.2) devra peut-être être ajustée selon la taille de votre image
+            self.campfire_sprite = arcade.Sprite(
+                CAMPFIRE_IMAGE_PATH,
+                scale=0.5 
+            )
+            self.campfire_list.append(self.campfire_sprite)
+        else:
+            print(f"ATTENTION : Image du feu de camp non trouvée à '{CAMPFIRE_IMAGE_PATH}'.")
+
+
         arcade.set_background_color(arcade.color.DARK_BLUE_GRAY)
 
-        # 3. Initialisation du Moteur de Jeu
+        # 4. Initialisation du Moteur de Jeu
         self.game_manager = GameManager(human_player_name=human_name)
         self.human_player = self.game_manager.human_player
         
-        # 4. Variables d'Affichage et Log
+        # 5. Variables d'Affichage et Log
         self.log_messages = [] 
         self.player_sprites = arcade.SpriteList()
         self.player_map = {} 
         self.action_buttons = []
         self.key_is_caps = False
 
-        # 5. Gestion du Temps et Vitesse d'écriture (Débat)
+        # 6. Gestion du Temps et Vitesse d'écriture (Débat)
         self.debate_timer = 60 
         self.current_speaker = None
         self.current_message_full = ""
@@ -206,13 +219,13 @@ class LoupGarouGame(arcade.Window):
         self.max_messages_per_debate = 10     
         self.message_is_complete = False 
         
-        # 6. INITIALISATION DES ÉLÉMENTS D'INTERFACE UTILISATEUR
+        # 7. INITIALISATION DES ÉLÉMENTS D'INTERFACE UTILISATEUR
         self._setup_ui_elements() 
         
-        # 7. Initialisation des Sprites
+        # 8. Initialisation des Sprites
         self._setup_sprites()
         
-        # 8. Commencer le jeu
+        # 9. Commencer le jeu
         self.start_game_loop()
 
     def _setup_ui_elements(self):
@@ -363,6 +376,11 @@ class LoupGarouGame(arcade.Window):
         self.player_map = {} 
         self._setup_sprites()
         
+        # Recalculer la position du feu de camp
+        if self.campfire_sprite:
+            self.campfire_sprite.center_x = width / 2
+            self.campfire_sprite.center_y = height / 2 - 100 # Positionner sous le cercle des joueurs
+        
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
         
@@ -390,22 +408,27 @@ class LoupGarouGame(arcade.Window):
         """Affichage : appelé à chaque image pour dessiner."""
         self.clear()
         
-        # --- DESSIN DU FOND D'ÉCRAN via SPRITELIST (SOLUTION ULTIME) ---
+        # --- 1. DESSIN DU FOND D'ÉCRAN via SPRITELIST ---
         if self.background_sprite:
-            # 1. Mettre à jour la taille du sprite avant de le dessiner
             self.background_sprite.width = self.width
             self.background_sprite.height = self.height
             self.background_sprite.center_x = self.width / 2
             self.background_sprite.center_y = self.height / 2
-            
-            # 2. Dessiner la liste de sprites du fond
             self.background_list.draw() 
+        
+        # --- 2. DESSIN DU FEU DE CAMP AU CENTRE ---
+        if self.campfire_sprite:
+            # Positionnement centré ajusté (100 pixels en dessous du centre)
+            self.campfire_sprite.center_x = self.width / 2
+            self.campfire_sprite.center_y = self.height / 2 - 100 
+            self.campfire_list.draw()
+            
         # ----------------------------------------------------------------
 
         human_is_wolf = (self.human_player.role and self.human_player.role.camp == Camp.LOUP)
         wolf_teammates = self.human_player.wolf_teammates
         
-        # Dessiner les joueurs et la Spritelist
+        # 3. Dessiner les joueurs et la Spritelist
         for player in self.game_manager.players:
              sprite = self.player_map.get(player.name)
              if sprite:
