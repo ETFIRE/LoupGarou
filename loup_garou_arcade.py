@@ -15,7 +15,7 @@ load_dotenv()
 
 # Importation de vos classes de jeu
 from game_core import GameManager, Player 
-from enums_and_roles import Camp, NightAction, Role # Role importé pour le Cupidon
+from enums_and_roles import Camp, NightAction, Role # Role importé pour le Cupidon et le MAIRE
 
 # --- Paramètres de la Fenêtre & États ---
 SCREEN_WIDTH = 1000
@@ -412,7 +412,6 @@ class LoupGarouGame(arcade.Window):
                 break
         
         if clicked_player_name:
-            # Assurez-vous que les joueurs sont distincts si c'est la règle (ici, nous autorisons tout le monde)
             
             if clicked_player_name in self.cupid_targets:
                 self.cupid_targets.remove(clicked_player_name)
@@ -432,10 +431,38 @@ class LoupGarouGame(arcade.Window):
                 self._start_night_phase()
                 
     def _display_cupid_selection_indicators(self):
-        """Dessine un cercle pour les joueurs sélectionnés par Cupidon."""
+        """Dessine un cercle pour les joueurs sélectionnés par Cupidon ET la ligne des amoureux."""
+        
+        # Dessiner la ligne entre les amoureux si la liaison est faite (IA ou Humain)
+        if self.game_manager.lovers and len(self.game_manager.lovers) == 2:
+            name1, name2 = self.game_manager.lovers
+            
+            # --- CORRECTION ICI ---
+            # Récupérer les objets Joueur réels pour vérifier l'état
+            player1 = self.game_manager.get_player_by_name(name1)
+            player2 = self.game_manager.get_player_by_name(name2)
+            
+            # Récupérer les Sprites pour le dessin
+            sprite1 = self.player_map.get(name1)
+            sprite2 = self.player_map.get(name2)
+            
+            # Vérifier si les joueurs VIVANTS existent pour dessiner la ligne
+            if (sprite1 and sprite2 and player1 and player2 and 
+                player1.is_alive and player2.is_alive):
+                 # Dessine un lien rose entre les deux sprites vivants
+                 arcade.draw_line(
+                     sprite1.center_x, sprite1.center_y,
+                     sprite2.center_x, sprite2.center_y,
+                     arcade.color.PINK,
+                     line_width=3
+                 )
+        # ------------------------
+
+
         if self.current_state != GameState.CUPID_ACTION:
             return
 
+        # Dessiner l'indicateur de sélection pour l'action en cours (CUPID_ACTION)
         for player_name in self.cupid_targets:
             sprite = self.player_map.get(player_name)
             if sprite:
@@ -534,11 +561,20 @@ class LoupGarouGame(arcade.Window):
                      sprite.center_x, sprite.center_y + 60, color, 12, anchor_x="center"
                  )
                  
+                 # Affichage du rôle si la partie est terminée OU si c'est le joueur humain (pour référence)
                  if self.current_state == GameState.GAME_OVER or player.is_human:
                      role_text = f"Role: {player.role.name}"
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
+                 
+                 # Indicateur pour le Maire (M)
+                 if player.role == Role.MAIRE and player.is_alive:
+                     arcade.draw_text(
+                         "M", sprite.center_x + 30, sprite.center_y + 60, 
+                         arcade.color.GOLD, 14, anchor_x="center"
+                     )
 
-        # Afficher l'indicateur de sélection Cupidon APRÈS les sprites pour qu'il soit visible
+
+        # Afficher l'indicateur de sélection Cupidon et le lien d'amour (Ceci dessine aussi la ligne rose)
         self._display_cupid_selection_indicators()
         
         self.player_sprites.draw()
@@ -632,6 +668,7 @@ class LoupGarouGame(arcade.Window):
             else:
                  self.game_manager.day += 1
                  self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.") 
+                 # La phase Cupidon est ignorée après la première nuit (day > 1)
                  if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
                      self.current_state = GameState.NIGHT_HUMAN_ACTION
                  else:
@@ -645,7 +682,8 @@ class LoupGarouGame(arcade.Window):
         
         self.action_buttons = []
         alive = self.game_manager.get_alive_players()
-        role_name = self.human_player.role.name
+        # Sécurité : vérifier que le rôle est bien assigné
+        role_name = self.human_player.role.name if self.human_player.role else "N/A" 
         
         button_y = 50 
         button_width = 150
@@ -686,6 +724,7 @@ class LoupGarouGame(arcade.Window):
             return
             
         else:
+            # S'il n'y a pas d'action de nuit humaine, on passe à l'IA.
             self.current_state = GameState.NIGHT_IA_ACTION
             return
 
@@ -703,7 +742,7 @@ class LoupGarouGame(arcade.Window):
 
         self.action_buttons = [] 
         
-        if self.human_player.role.name == "Voyante" and ":" in clicked_action_data:
+        if self.human_player.role == Role.VOYANTE and ":" in clicked_action_data:
             action_type, target_name = clicked_action_data.split(":", 1)
             target = next((p for p in self.game_manager.players if p.name == target_name), None)
             
@@ -714,7 +753,7 @@ class LoupGarouGame(arcade.Window):
                 self.current_state = GameState.NIGHT_IA_ACTION
                 return
                 
-        elif self.human_player.role.name == "Sorcière" and clicked_action_data in ["TUER", "SAUVER", "PASSER"]:
+        elif self.human_player.role == Role.SORCIERE and clicked_action_data in ["TUER", "SAUVER", "PASSER"]:
             
             if clicked_action_data == "PASSER":
                 self.log_messages.append("Action de nuit passée.")
@@ -884,7 +923,7 @@ class LoupGarouGame(arcade.Window):
             )
         elif self.current_state == GameState.CUPID_ACTION:
              arcade.draw_text(
-                f"PHASE CUPIDON (1/2 Sélections)",
+                f"PHASE CUPIDON (Sélectionnez 2)",
                 RIGHT_PANEL_START_X + 20, self.height - 200, arcade.color.PINK, 16
             )
 

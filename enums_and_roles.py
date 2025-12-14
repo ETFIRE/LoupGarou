@@ -64,6 +64,15 @@ class Role(Enum):
         "night_action": NightAction.PAIR,  # Action spécifique de la première nuit
         "priority": 10
     }
+    
+    # --- NOUVEAU RÔLE : Maire ---
+    MAIRE = {
+        "name": "Maire",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.NONE, # L'action est pendant le jour (vote)
+        "priority": 0
+    }
+    
 
     # --- Pour faciliter la gestion des rôles IA ---
     @property
