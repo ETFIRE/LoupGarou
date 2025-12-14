@@ -1,18 +1,3 @@
-# Librairies nécessaires pour le projet Loup-Garou IA
-
-# 1. Framework pour l'interface graphique (GUI) et la boucle de jeu
-arcade
-
-# 2. Librairies pour l'API LLM (Groq / Llama)
-groq
-
-# 3. Gestion des variables d'environnement (pour GROQ_KEY)
-python-dotenv
-
-# 4. Librairies standard incluses dans Python, mais listées ici pour la clarté (souvent incluses de base)
-# Note: Ces modules ne nécessitent généralement pas d'installation via pip
-# os
-# json
-# random
-# math
-# time
+arcade==2.6.17
+groq==0.11.0
+python-dotenv==1.0.1
