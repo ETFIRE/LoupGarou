@@ -1,35 +1,109 @@
+# enums_and_roles.py
 
+from enum import Enum 
 
-from enum import Enum
-
+# --- Camps (Factions) ---
 class Camp(Enum):
-    LOUP = "Loup-Garou"
-    VILLAGEOIS = "Villageois"
+    VILLAGE = "Villageois"
+    LOUP = "Loups-Garous"
+    SOLO = "Solitaire" # Non utilisé pour l'instant, mais bonne pratique
 
+# --- Actions de Nuit Possibles ---
 class NightAction(Enum):
-    NONE = "Aucune"
-    INVESTIGATE = "Enquête"  # Voyante
-    KILL = "Meurtre"        # Loup-Garou
-    POTION = "Potion"       # Sorcière
-    WATCH = "Observation"   # NOUVEAU: Petite Fille
+    NONE = 0
+    KILL = 1         # Loup-Garou
+    INVESTIGATE = 2  # Voyante
+    POTION = 3       # Sorcière
+    PAIR = 4         # Cupidon (NOUVEAU)
+    PROTECT = 5      # Salvateur
 
-class Role:
-    def __init__(self, name, camp, night_action=NightAction.NONE):
-        self.name = name
-        self.camp = camp
-        self.night_action = night_action
-
-
-ROLES_POOL = {
-    "LoupGarou1": Role("Loup-Garou", Camp.LOUP, NightAction.KILL),
-    "LoupGarou2": Role("Loup-Garou", Camp.LOUP, NightAction.KILL),
-    "LoupGarou3": Role("Loup-Garou", Camp.LOUP, NightAction.KILL),
+# --- Définition des Rôles et de leurs Attributs ---
+class Role(Enum):
+    # --- Villageois Simples ---
+    VILLAGEOIS = {
+        "name": "Villageois",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.NONE,
+        "priority": 0
+    }
     
-    "Voyante": Role("Voyante", Camp.VILLAGEOIS, NightAction.INVESTIGATE),
-    "Sorciere": Role("Sorcière", Camp.VILLAGEOIS, NightAction.POTION),
-    "Chasseur": Role("Chasseur", Camp.VILLAGEOIS),
-    "PetiteFille": Role("Petite Fille", Camp.VILLAGEOIS, NightAction.WATCH), # <-- NOUVEAU
-    "Villageois1": Role("Villageois", Camp.VILLAGEOIS),
-    "Villageois2": Role("Villageois", Camp.VILLAGEOIS),
-    "Villageois3": Role("Villageois", Camp.VILLAGEOIS),
-}
+    # --- Loups-Garous ---
+    LOUP = {
+        "name": "Loup-Garou",
+        "camp": Camp.LOUP,
+        "night_action": NightAction.KILL,
+        "priority": 30
+    }
+    
+    # --- Villageois Spéciaux (Phase de Nuit Active) ---
+    VOYANTE = {
+        "name": "Voyante",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.INVESTIGATE,
+        "priority": 20
+    }
+    
+    SORCIERE = {
+        "name": "Sorcière",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.POTION,
+        "priority": 40
+    }
+    
+    # --- Villageois Spéciaux (Phase de Nuit Passive) ---
+    CHASSEUR = {
+        "name": "Chasseur",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.NONE, # L'action du chasseur est déclenchée à sa mort
+        "priority": 0
+    }
+    
+    # --- NOUVEAU RÔLE : Cupidon ---
+    CUPIDON = {
+        "name": "Cupidon",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.PAIR,  # Action spécifique de la première nuit
+        "priority": 10
+    }
+    
+    # --- NOUVEAU RÔLE : Maire ---
+    MAIRE = {
+        "name": "Maire",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.NONE, # L'action est pendant le jour (vote)
+        "priority": 0
+    }
+
+    # --- NOUVEAU RÔLE : Salvateur ---
+    SALVATEUR = {
+        "name": "Salvateur",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.PROTECT,
+        "priority": 25 # Priorité entre la Voyante (20) et les Loups (30)
+    }
+
+    # --- RÔLE : ANCIEN (NOUVEAU) ---
+    ANCIEN = {
+        "name": "Ancien",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.NONE, 
+        "priority": 0
+    }
+    
+
+    # --- Pour faciliter la gestion des rôles IA ---
+    @property
+    def name(self):
+        return self.value["name"]
+
+    @property
+    def camp(self):
+        return self.value["camp"]
+
+    @property
+    def night_action(self):
+        return self.value["night_action"]
+        
+    @property
+    def priority(self):
+        return self.value["priority"]

@@ -1,3 +1,4 @@
+# chat_agent.py
 
 from groq import Groq
 from dotenv import load_dotenv
@@ -21,8 +22,14 @@ class Player:
         self.has_life_potion = False 
         self.wolf_teammates = [] 
         self.has_hunter_shot = True
+        self.last_protected_target = None  # <-- AJOUT SALVATEUR
+        self.is_ancient_protected = False # <-- AJOUT ANCIEN
+        
     def assign_role(self, role):
         self.role = role
+        # Initialisation spécifique pour l'Ancien (qui survit à la première attaque)
+        if role == Role.ANCIEN:
+            self.is_ancient_protected = True 
 
 # --------------------------------------------------------
 
@@ -36,7 +43,13 @@ class ChatAgent(Player):
     
     def __init__(self, name, personality_context_path, is_human=False):
         
+        # L'appel à super().__init__ initialise déjà tous les attributs de Player
         super().__init__(name, is_human)
+        
+        # Les lignes suivantes ne sont plus strictement nécessaires car elles sont
+        # initialisées dans Player, mais elles servent de rappel de sécurité.
+        # self.last_protected_target = None
+        # self.is_ancient_protected = False
         
        
         if "GROQ_KEY" not in os.environ:
@@ -76,11 +89,11 @@ class ChatAgent(Player):
     def _update_history(self, role, content):
          """Ajoute une interaction à l'historique isolé."""
          self.history.append(
-                 {
-                     "role": role,
-                     "content": content,
-                 })
-                 
+                     {
+                         "role": role,
+                         "content": content,
+                     })
+                     
     def _normalize_history(self, history_to_normalize):
         """Convertit les messages multimodaux (non supportés par ce modèle) en messages texte."""
         normalized_history = []
@@ -90,14 +103,14 @@ class ChatAgent(Player):
 
             if normalized_message["role"] == "user" and isinstance(content, list):
                 text_content = next((item['text'] for item in content if item.get('type') == 'text'), 
-                                    f"Message précédent de {self.name} (image)")
+                                     f"Message précédent de {self.name} (image)")
                 normalized_message["content"] = text_content
             
             normalized_history.append(normalized_message)
             
         return normalized_history
 
-   
+    
 
     def ask_llm(self, user_interaction):
         """Mode Texte Simple : Envoie l'interaction LLM et met à jour l'historique."""
@@ -141,22 +154,25 @@ class ChatAgent(Player):
              return response.strip()
          except Exception as e:
              print(f"Erreur GROQ API (Décision) : {e}")
-             
-             # NOTE : Nécessite l'accès à la liste des joueurs vivants, ce qui n'est pas possible ici.
-             return "Maître Simon" 
+             # Retourne une cible aléatoire en cas d'erreur de l'API
+             # Ceci nécessite l'accès à la liste des joueurs (non implémenté ici, donc un nom factice)
+             return "Alice" 
 
     def decide_night_action(self, alive_players):
          """Demande au LLM de choisir une cible pour son action de nuit."""
          if self.role.night_action == NightAction.NONE:
-             return None 
-             
+              return None 
+              
+         # LOGIQUE SALVATEUR : Exclusion de la cible précédente et de soi-même (géré par game_core, mais le LLM doit être informé)
+         
          alive_names = [p.name for p in alive_players if p.name != self.name] 
-         action_name = self.role.night_action.value
+         action_name = self.role.night_action.name
          
          prompt = (
              f"La nuit est tombée. Ton rôle ({self.role.name}) te demande d'agir: {action_name}. "
              "Basé sur l'historique des accusations et ta stratégie de victoire, choisis ta cible. "
              f"Voici la liste des joueurs VIVANTS : {', '.join(alive_names)}. "
+             f"RÈGLE SPÉCIALE : Tu NE dois PAS cibler '{self.last_protected_target}' (ta dernière cible protégée). "
              f"RÉPONDS UNIQUEMENT AVEC LE NOM DU JOUEUR CIBLÉ. (Ex: Alice)"
          )
          
@@ -172,7 +188,7 @@ class ChatAgent(Player):
              vote_instruction = "Tu es Loup-Garou. Vote CONTRE le Villageois le plus dangereux ou qui t'accuse. Ne vote JAMAIS contre tes alliés."
          else:
              vote_instruction = "Tu es Villageois. Vote pour le joueur que tu soupçonnes le plus, en ignorant les arguments trop émotionnels. Ne t'abstient JAMAIS."
-             
+              
          targets_str = ", ".join(alive_names)
          
          prompt = (
@@ -183,7 +199,7 @@ class ChatAgent(Player):
          
          voted_name = self._prompt_llm_for_decision(prompt, self.large_language_model)
          
-        
+         
          if voted_name and voted_name in alive_names:
              return voted_name
          
@@ -212,10 +228,10 @@ class ChatAgent(Player):
              instruction = (
                  f"Tu es la Voyante. Tu as une preuve DIRECTE: '{found_wolf_info}'. "
                  "RÉVÈLE IMMÉDIATEMENT le joueur que tu as vu comme étant LOUP. "
-                 "Utilise ta personnalité de {self.role.name} pour convaincre le village de ta vérité, mais sois prudent(e). "
+                 f"Utilise ta personnalité de {self.role.name} pour convaincre le village de ta vérité, mais sois prudent(e). "
              )
          
-        
+         
          elif is_accused:
              
              instruction = (
@@ -229,7 +245,7 @@ class ChatAgent(Player):
                  "Cherche les contradictions, les silences ou attaque le joueur qui est le moins accusé. Ne reste JAMAIS neutre. "
              )
  
-        
+         
          general_instruction = (
              f"Ton rôle est {self.role.name} ({self.role.camp.value}). Consulte ton historique (TON SEUL GUIDE). "
              f"RÉPONDS AVEC UN MESSAGE TRES COURT, PERCUTANT ET DIRECT (MAXIMUM 20 MOTS). "

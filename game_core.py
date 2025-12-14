@@ -1,13 +1,43 @@
+# game_core.py
 
+# -*- coding: utf-8 -*-
 import random
 import time 
 import os 
+from collections import defaultdict 
+import json 
+
+# --- Importations de base ---
+from enums_and_roles import Camp, NightAction, Role 
+# ASSUMPTION: La classe ChatAgent existe et est importable
+try:
+    from chat_agent import ChatAgent
+except ImportError:
+    # Classe factice pour éviter l'erreur si ChatAgent n'est pas dans le même répertoire
+    class ChatAgent(object):
+        # La méthode __init__ DOIT correspondre à ce qui est appelé dans _create_player_instance.
+        def __init__(self, name, personality_context_path):
+            self.name = name
+            self.is_human = False
+            self.role = None
+            self.is_alive = True
+            self.has_kill_potion = False
+            self.has_life_potion = False
+            self.wolf_teammates = []
+            self.has_hunter_shot = True
+            self.last_protected_target = None
+            self.is_ancient_protected = False
+            self.history = []
+        def assign_role(self, role): self.role = role
+        def receive_public_message(self, speaker, message): pass
+        def decide_night_action(self, alive_players): return random.choice([p.name for p in alive_players if p.name != self.name])
+        def generate_debate_message(self, public_status): return "Je pense que nous devrions être prudents."
+        def decide_vote(self, public_status, debate_summary): 
+            alive_names = [p['name'] for p in public_status if p['is_alive'] and p['name'] != self.name]
+            return random.choice(alive_names) if alive_names else None
 
 
-from enums_and_roles import Camp, NightAction, Role, ROLES_POOL 
-from chat_agent import ChatAgent
-
-
+# LISTE DE NOMS ALÉATOIRES POUR LES IA
 IA_NAMES_POOL = [
     "Oui Capitaine !", 
     "Oggy", 
@@ -16,16 +46,16 @@ IA_NAMES_POOL = [
     "Queeny",
     "Domi",
     "Patrick",
-    "La cheloue",
-    "?",
+    "La Mystérieuse",
+    "L'Interrogateur", 
     "L'Ami",
 ]
 
 
-
+# --- CLASSE PLAYER (NON IA) ---
 
 class Player:
-    """Représente un joueur humain (ou IA, mais ChatAgent hérite de celle-ci)."""
+    """Représente un joueur humain (ou la base pour ChatAgent)."""
     def __init__(self, name, is_human=True):
         self.name = name
         self.is_human = is_human
@@ -35,104 +65,131 @@ class Player:
         self.has_life_potion = False
         self.wolf_teammates = [] 
         self.has_hunter_shot = True
+        self.last_protected_target = None
+        self.is_ancient_protected = False
 
     def assign_role(self, role):
         self.role = role
+        if role == Role.ANCIEN:
+            self.is_ancient_protected = True
     
     def __repr__(self):
         status = "Vivant" if self.is_alive else "Mort"
         return f"[{'Humain' if self.is_human else 'IA'}] {self.name} ({self.role.name if self.role else 'N/A'} - {status})"
 
 
+# --- CLASSE GAMEMANAGER ---
+
 class GameManager:
     """Gère le déroulement et la logique du jeu."""
     
-    DEBATE_TIME_LIMIT = 20 
+    DEBATE_TIME_LIMIT = 20
     
     def __init__(self, human_player_name="Humain_Lucie"):
         
         self.day = 0
         self.players = [] 
-        self.available_roles = list(ROLES_POOL.values())
+        
+        # --- MISE À JOUR : Ajout du SALVATEUR et ajustement des Villageois ---
+        roles_to_use = [
+            Role.LOUP, Role.LOUP, Role.LOUP,
+            Role.VOYANTE, Role.SORCIERE, Role.CHASSEUR, 
+            Role.CUPIDON, 
+            Role.MAIRE, 
+            Role.SALVATEUR, # NOUVEAU RÔLE
+            Role.ANCIEN, # NOUVEAU RÔLE
+            Role.VILLAGEOIS,
+        ]
+        self.available_roles = [r.value for r in roles_to_use] 
         
         self.human_player = None 
         
-        self._setup_players(human_player_name)
+        self._setup_players(human_player_name) 
         
         self.human_player = next((p for p in self.players if p.is_human), None)
         
         self._distribute_roles()
         
         self._recalculate_wolf_count() 
-        self.vote_counts = {} 
+        self.vote_counts = defaultdict(int)
+        
+        # --- Attributs de Nuit globaux ---
+        self.is_cupid_phase_done = False
+        self.lovers = None 
+        self.night_kill_target = None 
+        self.night_protected_target = None 
+        # -----------------------------------
 
     
-    def _setup_players(self, human_player_name):
-        """Initialise les 9 IA avec des noms et des contextes aléatoires."""
-        
-        CONTEXT_DIR = "context" 
-        
-        if not os.path.isdir(CONTEXT_DIR):
-             raise FileNotFoundError(f"Le dossier de contexte '{CONTEXT_DIR}' est introuvable. Créez-le et ajoutez les fichiers perso_*.txt.")
-             
-        all_perso_paths = [
-            os.path.join(CONTEXT_DIR, f) 
-            for f in os.listdir(CONTEXT_DIR) 
-            if f.endswith('.txt') and f.startswith('perso_')
-        ]
-        
-        NUM_IA = 9
-        if len(all_perso_paths) < NUM_IA:
-             raise ValueError(f"Seulement {len(all_perso_paths)} personnalités trouvées, {NUM_IA} sont nécessaires.")
-        
-        selected_perso_paths = random.sample(all_perso_paths, NUM_IA)
-        
-        if len(IA_NAMES_POOL) < NUM_IA:
-             raise ValueError("Le pool de noms doit contenir au moins 9 noms uniques.")
-             
-        ia_names = random.sample(IA_NAMES_POOL, NUM_IA)
-        
-        self.players = []
-        
-        for name, path in zip(ia_names, selected_perso_paths):
-            self.players.append(ChatAgent(name=name, personality_context_path=path, is_human=False))
+    # --- METHODES DE SETUP ET GETTERS ---
+    
+    def _create_player_instance(self, name, role, is_human):
+        """Crée une instance Player ou ChatAgent."""
+        if is_human:
+            return Player(name, is_human=True)
+        else:
+            # Création du chemin de contexte unique pour chaque IA
+            context_path = os.path.join("context", f"{name.replace(' ', '_').lower()}.txt") 
             
-        self.players.append(Player(name=human_player_name, is_human=True))
+            # S'assurer que le fichier de contexte existe
+            if not os.path.exists("context"):
+                os.makedirs("context")
+                
+            if not os.path.exists(context_path):
+                 with open(context_path, "w", encoding="utf-8") as f:
+                    f.write(f"Tu es l'IA {name}. Ton rôle est d'être un joueur de Loup Garou. Réponds de manière concise.")
+            
+            # Appel Corrigé : Passe 'name' et l'argument obligatoire 'personality_context_path'
+            return ChatAgent(name, personality_context_path=context_path) 
 
-    def _distribute_roles(self, custom_roles=None):
+
+    def _setup_players(self, human_player_name):
+        """Initialise la liste des joueurs (IA et Humain)."""
+        num_ia = len(self.available_roles) - 1
+        
+        random.shuffle(IA_NAMES_POOL)
+        ia_names = IA_NAMES_POOL[:num_ia]
+        
+        # 1. Créer le joueur humain
+        self.players.append(Player(human_player_name, is_human=True))
+        
+        # 2. Créer les joueurs IA (en utilisant ChatAgent)
+        for name in ia_names:
+            self.players.append(self._create_player_instance(name, None, is_human=False))
+
+    def _distribute_roles(self):
         """Distribue aléatoirement les rôles aux joueurs et informe les Loups."""
-        roles_to_distribute = custom_roles if custom_roles else list(self.available_roles)
+        roles_to_distribute = [Role(r) for r in self.available_roles] 
         if len(self.players) != len(roles_to_distribute):
              raise ValueError("Le nombre de joueurs doit correspondre au nombre de rôles disponibles.")
 
         random.shuffle(roles_to_distribute)
 
-       
+        # 1. Distribution initiale et ajout du rôle au contexte de chaque IA
         for player in self.players:
             role = roles_to_distribute.pop()
             player.assign_role(role)
             
-            
-            if role.name == "Sorcière":
+            # Initialisation des capacités/potions
+            if role == Role.SORCIERE:
                 player.has_kill_potion = True
                 player.has_life_potion = True
-            elif role.name == "Chasseur":
+            elif role == Role.CHASSEUR:
                 player.has_hunter_shot = True
             
             if not player.is_human:
-               
                 player.history.append({
                     "role": "system",
                     "content": f"TON RÔLE ACTUEL DANS LA PARTIE EST: {role.name}. Tu es dans le camp des {role.camp.value}."
                 })
         
-       
+        # --- LOGIQUE : INFORMER TOUS LES LOUPS ---
         all_wolves = [p for p in self.players if p.role.camp == Camp.LOUP]
         all_wolf_names = [p.name for p in all_wolves]
         
         for p in all_wolves:
             co_wolves = [name for name in all_wolf_names if name != p.name]
-           
+            
             if not p.is_human:
                 if co_wolves: 
                     wolf_list_str = ", ".join(co_wolves)
@@ -141,11 +198,9 @@ class GameManager:
                         "content": f"TES COÉQUIPIERS LOUPS-GAROUS SONT : {wolf_list_str}. Ne les trahis jamais. Travaillez ensemble pour tuer les villageois."
                     })
             
-           
             else: 
                  p.wolf_teammates = co_wolves 
         
-       
     def _recalculate_wolf_count(self):
         """Recalcule le nombre de loups vivants et met à jour l'attribut."""
         self.wolves_alive = sum(1 for p in self.players if p.role.camp == Camp.LOUP and p.is_alive)
@@ -153,6 +208,14 @@ class GameManager:
     def get_alive_players(self):
         """Retourne la liste des joueurs vivants."""
         return [p for p in self.players if p.is_alive]
+        
+    def get_player_by_name(self, name):
+        """Retourne un joueur par son nom."""
+        return next((p for p in self.players if p.name == name), None)
+        
+    def get_player_by_role(self, role_enum):
+        """Retourne le joueur ayant ce rôle (le premier trouvé)."""
+        return next((p for p in self.players if p.role == role_enum), None)
 
     def _get_public_status(self):
         """Retourne l'état public des joueurs pour le prompt des IA."""
@@ -162,123 +225,211 @@ class GameManager:
         """Vérifie si un camp a gagné."""
         alive = self.get_alive_players()
         wolves = sum(1 for p in alive if p.role.camp == Camp.LOUP)
-        villagers = sum(1 for p in alive if p.role.camp == Camp.VILLAGEOIS)
+        villagers = sum(1 for p in alive if p.role.camp == Camp.VILLAGE)
         
         if wolves == 0:
-            return Camp.VILLAGEOIS
+            return Camp.VILLAGE
         if wolves >= villagers:
             return Camp.LOUP
         return None
+        
+    # --- Logique de Mort Centralisée ---
+    def _kill_player(self, target_player_name, reason="tué par les Loups"):
+        """
+        Tue un joueur et gère l'effet de mort en chaîne du Chasseur et du Cupidon.
+        Retourne le message de mort complet.
+        """
+        
+        target = self.get_player_by_name(target_player_name)
+        if not target or not target.is_alive:
+            return f"{target_player_name} n'a pas pu être tué."
+            
+        target.is_alive = False
+        message = f"❌ {target.name} est mort(e) ({reason}). Rôle: {target.role.name}."
+        
+        hunter_eliminated_target = None
 
+        if target.role == Role.ANCIEN and target.is_ancient_protected and "lynché" not in reason:
+            target.is_ancient_protected = False
+            return f"🌟 **L'ANCIEN** a été attaqué, mais son totem de protection lui a sauvé la vie cette fois ! Il est désormais vulnérable."
+        
+        # S'il survit, on sort de la fonction sans le tuer ni activer les effets de mort.
+        if target.role == Role.ANCIEN and not target.is_ancient_protected and "lynché" not in reason:
+            # S'il a déjà utilisé son jeton, il meurt normalement et active les effets.
+            pass
+
+        target.is_alive = False
+        message = f"❌ {target.name} est mort(e) ({reason}). Rôle: {target.role.name}."
+        
+        # 1. LOGIQUE DU CHASSEUR
+        if target.role == Role.CHASSEUR and target.has_hunter_shot:
+            survivors = [p for p in self.get_alive_players() if p.name != target.name] 
+            
+            if survivors:
+                hunter_eliminated_target = random.choice(survivors)
+                # Utilisation de _kill_player pour gérer la mort en chaîne
+                self._kill_player(hunter_eliminated_target.name, reason="emporté(e) par le Chasseur")
+                target.has_hunter_shot = False 
+                message += f"\n🏹 CHASSEUR ACTIF : Il emporte {hunter_eliminated_target.name} (Rôle: {hunter_eliminated_target.role.name}) dans sa chute !"
+        
+        # 2. LOGIQUE DU CUPIDON (Mort en chaîne)
+        if self.lovers and target_player_name in self.lovers:
+            # Trouver le partenaire
+            partner_name = self.lovers[0] if target_player_name == self.lovers[1] else self.lovers[1]
+            partner = self.get_player_by_name(partner_name)
+            
+            if partner and partner.is_alive:
+                # Appel récursif pour tuer le partenaire
+                self._kill_player(partner_name, reason="mort de chagrin d'amour")
+                message += f"\n💖 COUPLE CASSÉ : Suite à la mort de {target.name}, {partner_name} est mort(e) de chagrin."
+        
+        self._recalculate_wolf_count()
+        return message
+
+    # --- Phase d'Action Cupidon ---
+    def _handle_cupid_phase(self, human_choice=None):
+        """Gère l'action du Cupidon pendant la première nuit (avant tout autre action)."""
+        if self.is_cupid_phase_done:
+            return "La phase Cupidon est terminée."
+
+        cupidon = self.get_player_by_role(Role.CUPIDON)
+
+        if not cupidon or not cupidon.is_alive:
+            self.is_cupid_phase_done = True
+            return "Pas de Cupidon ou Cupidon mort. Phase ignorée."
+
+        # Logique Humain
+        if cupidon.is_human and human_choice and len(human_choice.split(',')) == 2:
+            target1_name, target2_name = human_choice.split(',')
+            self.lovers = (target1_name.strip(), target2_name.strip())
+            self.is_cupid_phase_done = True
+            return f"💖 {cupidon.name} a lié {self.lovers[0]} et {self.lovers[1]}."
+        
+        # Logique IA
+        elif not cupidon.is_human:
+            potential_targets = [p.name for p in self.players] 
+            if len(potential_targets) >= 2:
+                love_targets = random.sample(potential_targets, 2)
+                self.lovers = (love_targets[0], love_targets[1])
+                self.is_cupid_phase_done = True
+                return f"💖 Cupidon (IA) a lié {self.lovers[0]} et {self.lovers[1]}."
+            
+        return "Action Cupidon en attente ou erreur de sélection."
+    # ----------------------------------------
+
+
+    # --- Phase de Nuit ---
 
     def _night_phase(self):
-        """Orchestre les actions secrètes des joueurs (Voyante, Loup, Sorcière, Petite Fille...)."""
+        """Orchestre les actions secrètes des joueurs."""
         
         alive = self.get_alive_players()
+        
         self.day += 1 
         
-        pf_revelation = "" 
-        if self.human_player and self.human_player.role and self.human_player.role.name == "Petite Fille":
-            alive_wolves = [p for p in alive if p.role.camp == Camp.LOUP]
-            if alive_wolves:
-                
-                discovered_wolf = random.choice(alive_wolves)
-                pf_revelation = f"\n🔍 PETITE FILLE : Tu as découvert que **{discovered_wolf.name}** est un Loup-Garou ! Utilise cette information avec sagesse."
-            else:
-                pf_revelation = "\n🔍 PETITE FILLE : Il ne reste plus de Loups-Garous à découvrir."
-       
-        if self.day == 1:
-            
-            for voyante in [p for p in alive if p.role.night_action == NightAction.INVESTIGATE]:
-                if not voyante.is_human:
-                    target_name = voyante.decide_night_action(alive)
-                    target = next((p for p in alive if p.name == target_name), None)
-                    if target:
-                        voyante.history.append({
-                            "role": "system", 
-                            "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value}). Utilise cette info dans le débat."
-                        })
-            
-            
-            self._recalculate_wolf_count()
-            return "🌙 Première nuit passée. Le village se réveille sans drame !" + pf_revelation
-
-      
-        ordered_actions = {
-            NightAction.INVESTIGATE: [],
-            NightAction.KILL: [],
-            NightAction.WATCH: [], 
-            NightAction.POTION: [],
-        }
+        night_messages = []
         
-        for p in alive:
-            if p.role.night_action in ordered_actions:
-                ordered_actions[p.role.night_action].append(p)
-
-        kill_target = None
-       
-        for voyante in ordered_actions[NightAction.INVESTIGATE]:
-            if not voyante.is_human:
+        # 1. NUIT BLANCHE (aucune mort prévue la première nuit après l'action Cupidon)
+        if self.day == 1:
+            for voyante in [p for p in alive if p.role == Role.VOYANTE and not p.is_human]:
                 target_name = voyante.decide_night_action(alive)
-                target = next((p for p in alive if p.name == target_name), None)
+                target = self.get_player_by_name(target_name)
                 if target:
                     voyante.history.append({
                         "role": "system", 
                         "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value}). Utilise cette info dans le débat."
                     })
+            
+            night_messages.append("🌙 Première nuit passée. Le village se réveille sans drame !")
+            self._recalculate_wolf_count()
+            return "\n".join(night_messages)
         
-       
-        wolves_acting = ordered_actions[NightAction.KILL]
-        if wolves_acting:
-            if not wolves_acting[0].is_human: 
-                target_name = wolves_acting[0].decide_night_action(alive)
-                kill_target = next((p for p in alive if p.name == target_name), None)
         
-       
+        # --- LOGIQUE POUR NUIT 2 et suivantes ---
+        
+        actions_by_priority = defaultdict(list)
+        for p in alive:
+             if p.role and p.role.night_action != NightAction.NONE:
+                 actions_by_priority[p.role.priority].append(p)
+
+        sorted_priorities = sorted(actions_by_priority.keys())
+        
+        self.night_kill_target = None
+        self.night_protected_target = None # Réinitialisation
+        is_saved_by_witch = False 
+        
+        for priority in sorted_priorities:
+            for player in actions_by_priority[priority]:
+                
+                # A. Logique VOYANTE (INVESTIGATE) - Priorité 20
+                if player.role.night_action == NightAction.INVESTIGATE and not player.is_human:
+                    target_name = player.decide_night_action(alive)
+                    target = self.get_player_by_name(target_name)
+                    if target:
+                        player.history.append({
+                            "role": "system", 
+                            "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value}). Utilise cette info dans le débat."
+                        })
+                
+                # B. Logique SALVATEUR (PROTECT) - Priorité 25
+                elif player.role.night_action == NightAction.PROTECT:
+                    # Le Salvateur IA choisit sa cible
+                    if not player.is_human:
+                        # Assure que le joueur IA a bien last_protected_target (corrigé dans ChatAgent factice)
+                        targets_available = [p for p in alive 
+                                            if p.name != player.name and p.name != player.last_protected_target]
+                        
+                        if targets_available:
+                            target_player = random.choice(targets_available)
+                            self.night_protected_target = target_player.name # Définit la cible globale de protection
+                            player.last_protected_target = target_player.name # Mise à jour de l'historique du joueur
+                
+                # C. Logique LOUPS (KILL) - Priorité 30
+                elif player.role.night_action == NightAction.KILL and player.role.camp == Camp.LOUP and not player.is_human:
+                    if not self.night_kill_target:
+                         target_name = player.decide_night_action(alive)
+                         self.night_kill_target = self.get_player_by_name(target_name)
+
+        
+        # 3. Exécution du Meurtre des Loups
+        kill_target = self.night_kill_target
         if kill_target:
-            for petite_fille in ordered_actions[NightAction.WATCH]:
-                 if not petite_fille.is_human:
-                    
-                     petite_fille.history.append({
-                         "role": "system", 
-                         "content": f"Tu as vu les Loups cibler {kill_target.name} cette nuit. Utilise cette information cruciale."
-                     })
-                     
-        is_saved = False 
-        
-        sorciere = next((p for p in alive if p.role.name == "Sorcière"), None)
-        
-        if sorciere and sorciere.is_alive and kill_target:
             
-            
-            if sorciere.has_life_potion:
-                
-                
-                if not sorciere.is_human:
-                    # La Sorcière IA a 50% de chance de sauver si la cible n'est pas un Loup
-                    if kill_target.role.camp != Camp.LOUP and random.random() < 0.5:
-                        is_saved = True
-                        sorciere.has_life_potion = False # Utilisation de la potion
-        
-       
-        if kill_target and kill_target.is_alive:
-            if is_saved:
-                self._recalculate_wolf_count()
-                return f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière !" + pf_revelation
+            # --- VÉRIFICATION SALVATEUR (Protection) ---
+            if kill_target.name == self.night_protected_target:
+                night_messages.append(f"🛡️ **{kill_target.name}** a été attaqué(e) mais **sauvé(e) par le Salvateur** !")
             else:
+            
+                # 4. Logique SORCIERE (POTION) - Priorité 40 (Après la protection)
+                sorciere = self.get_player_by_role(Role.SORCIERE)
                 
-                kill_target.is_alive = False 
-                self._recalculate_wolf_count()
-                return f"❌ {kill_target.name} est mort(e) pendant la nuit. Rôle: {kill_target.role.name}." + pf_revelation
+                if sorciere and sorciere.is_alive:
+                    
+                    if sorciere.has_life_potion:
+                        
+                        if not sorciere.is_human:
+                            if kill_target.role.camp != Camp.LOUP and random.random() < 0.5:
+                                is_saved_by_witch = True
+                                sorciere.has_life_potion = False 
+                                night_messages.append(f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière !")
+                
+                # Exécution de l'élimination (sauf si sauvé par la Sorcière)
+                if kill_target and not is_saved_by_witch:
+                    message_mort = self._kill_player(kill_target.name, reason="tué par les Loups")
+                    night_messages.append(message_mort)
+                elif kill_target and is_saved_by_witch:
+                    pass 
 
         self._recalculate_wolf_count()
-        return "Nuit passée, personne n'est mort." + pf_revelation
+        return "\n".join(night_messages) if night_messages else "Nuit passée, personne n'est mort."
 
+
+    # --- Phase de Jour (Vote) ---
 
     def _day_phase(self):
         """Lance le cycle complet du jour : vote IA, résultat, et lynchage (si l'humain est mort)."""
         alive = self.get_alive_players()
-        self.vote_counts = {}
+        self.vote_counts = defaultdict(int)
         
         self._voting_phase_ia_only() 
         
@@ -287,7 +438,8 @@ class GameManager:
 
     def register_human_vote(self, voted_player_name):
         """Enregistre le vote du joueur humain pour le lynchage."""
-        self.vote_counts[voted_player_name] = self.vote_counts.get(voted_player_name, 0) + 1
+        if self.human_player.is_alive:
+            self.vote_counts[voted_player_name] += 1
         
         self._voting_phase_ia_only() 
 
@@ -299,8 +451,8 @@ class GameManager:
             if not voter.is_human and voter.is_alive:
                 voted_name = voter.decide_vote(self._get_public_status(), debate_summary="Récapitulatif des accusations...")
                 
-                if voted_name in [p.name for p in alive_players]:
-                     self.vote_counts[voted_name] = self.vote_counts.get(voted_name, 0) + 1
+                if voted_name and voted_name in [p.name for p in alive_players]:
+                     self.vote_counts[voted_name] += 1
 
     def _lynch_result(self, alive_players):
         """Détermine la victime du lynchage et gère l'élimination."""
@@ -308,41 +460,41 @@ class GameManager:
         if not self.vote_counts:
             return "Personne n'a voté. Le village est confus."
 
+        # --- LOGIQUE MAIRE (Double Vote) ---
+        mayor_player = self.get_player_by_role(Role.MAIRE)
+        mayor_name = mayor_player.name if mayor_player and mayor_player.is_alive else None
+        
+        mayor_message = ""
+        if mayor_name and mayor_player.is_alive:
+            
+            # --- Simplification: Si l'humain est le maire ---
+            if self.human_player.role == Role.MAIRE and self.human_player.is_alive:
+                
+                human_vote_target = next((name for name, count in self.vote_counts.items() if count % 2 != 0), None)
+                
+                if human_vote_target:
+                    self.vote_counts[human_vote_target] += 1 
+                    mayor_message = f"🗳️ **Le vote du Maire ({mayor_player.name}) a été doublé.** "
+                else:
+                    mayor_message = f"🗳️ **Le Maire ({mayor_player.name}) n'a pas voté ce tour.** "
+
+            # --- Si l'IA est le maire ---
+            elif not self.human_player.role == Role.MAIRE and mayor_player.is_alive:
+                 mayor_message = f"🗳️ **Le Maire ({mayor_player.name}) est vivant.** "
+
+
+        # ---------------------------------------------
+        
         lynch_target_name = max(self.vote_counts, key=self.vote_counts.get)
         max_votes = self.vote_counts[lynch_target_name]
         
         if list(self.vote_counts.values()).count(max_votes) > 1:
-            self.vote_counts = {}
-            return f"⚖️ Égalité des votes ! Personne n'est lynché (Max votes: {max_votes})."
+            self.vote_counts.clear()
+            return f"⚖️ Égalité des votes ! Personne n'est lynché (Max votes: {max_votes}). {mayor_message}"
             
-        lynch_target = next((p for p in alive_players if p.name == lynch_target_name), None)
+        # Élimination via la méthode centralisée
+        message = self._kill_player(lynch_target_name, reason="lynché(e) par le village")
         
-        hunter_eliminated_target = None
-        
-        if lynch_target:
-            lynch_target.is_alive = False
-            
-            
-            if lynch_target.role.name == "Chasseur" and lynch_target.has_hunter_shot:
-                
-                
-                survivors = [p for p in self.get_alive_players() if p != lynch_target] 
-                
-                if survivors:
-                    hunter_eliminated_target = random.choice(survivors)
-                    hunter_eliminated_target.is_alive = False
-                    lynch_target.has_hunter_shot = False # Action utilisée
-                    self._recalculate_wolf_count() 
-
-            self._recalculate_wolf_count()
-            
-            message = f"🔥 {lynch_target.name} est lynché avec {max_votes} votes. Rôle: {lynch_target.role.name}."
-            
-           
-            if hunter_eliminated_target:
-                message += f"\n🏹 CHASSEUR ACTIF : Il emporte {hunter_eliminated_target.name} (Rôle: {hunter_eliminated_target.role.name}) dans sa chute !" 
-        else:
-            message = "Erreur: Cible de lynchage invalide."
-        
-        self.vote_counts = {}
-        return message
+        self.vote_counts.clear()
+        # On ajoute le message du Maire au début du résultat du lynchage
+        return mayor_message + message

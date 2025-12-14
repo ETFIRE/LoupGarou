@@ -7,12 +7,32 @@ import time
 from enum import Enum 
 import math
 import os
+import sys
 from dotenv import load_dotenv
+
+# Charger les variables d'environnement (y compris GROQ_API_KEY)
 load_dotenv() 
 
 # Importation de vos classes de jeu
 from game_core import GameManager, Player 
-from enums_and_roles import Camp, NightAction 
+from enums_and_roles import Camp, NightAction, Role # Role importé pour tous les rôles spéciaux
+
+# --- Paramètres de la Fenêtre & États ---
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 700
+SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
+
+class GameState(Enum):
+    SETUP = 1 
+    CUPID_ACTION = 15 # ÉTAT POUR L'ACTION CUPIDON
+    NIGHT_HUMAN_ACTION = 2 
+    NIGHT_IA_ACTION = 3     
+    DEBATE = 4
+    HUMAN_ACTION = 5     
+    VOTING = 6
+    RESULT = 7
+    GAME_OVER = 8
+
 
 # --- Bouton Interactif ---
 class MenuButton:
@@ -33,6 +53,8 @@ class MenuButton:
             "PASSER": arcade.color.YELLOW_ORANGE,
             "Voter": arcade.color.DARK_RED,
             "COMMENCER": arcade.color.DARK_GREEN,
+            "Envoyer": arcade.color.DARK_CYAN,
+            "PROTÉGER": arcade.color.SKY_BLUE, # COULEUR SALVATEUR
             "DEFAULT": arcade.color.DARK_BLUE
         }
         
@@ -47,11 +69,10 @@ class MenuButton:
             color
         )
         arcade.draw_text(self.text, self.center_x, self.center_y,
-                         arcade.color.WHITE, 12, anchor_x="center", anchor_y="center")
+                          arcade.color.WHITE, 12, anchor_x="center", anchor_y="center")
 
     def check_click(self, x, y):
         """Vérifie si les coordonnées de la souris sont dans le bouton."""
-        # CORRECTION de l'erreur de frappe: 'the' remplacé par 'self'
         return (self.center_x - self.width/2 < x < self.center_x + self.width/2 and
                 self.center_y - self.height/2 < y < self.center_y + self.height/2) 
 
@@ -75,13 +96,23 @@ class ChatInput:
         
         cursor = ("|" if self.active and int(time.time() * 2) % 2 == 0 else "")
         arcade.draw_text(self.text + cursor, 
-                         self.x + 5, self.y + 5, 
-                         arcade.color.BLACK, 14)
+                          self.x + 5, self.y + 5, 
+                          arcade.color.BLACK, 14)
         
         if self.send_button:
             self.send_button.draw()
-
-    def handle_key_press(self, symbol):
+            
+    def update_position(self, x, y, width):
+        """Met à jour la position et la taille après un redimensionnement."""
+        self.x = x
+        self.y = y
+        self.width = width
+        
+        if self.send_button:
+            self.send_button.center_x = x + width + 50
+            self.send_button.center_y = y + self.height / 2
+            
+    def handle_key_press(self, symbol, modifiers):
         if self.active:
             if symbol == arcade.key.ENTER:
                 self.send_message()
@@ -92,10 +123,19 @@ class ChatInput:
                     char = chr(symbol)
                     if char.isprintable(): 
                         if len(self.text) < 80: 
-                            self.text += char
+                            if symbol >= arcade.key.A and symbol <= arcade.key.Z:
+                                if modifiers & arcade.key.LSHIFT or modifiers & arcade.key.RSHIFT or self.game.key_is_caps:
+                                    self.text += char.upper()
+                                else:
+                                    self.text += char.lower()
+                            elif symbol == arcade.key.SPACE:
+                                self.text += ' '
+                            else:
+                                self.text += char
+                            
                 except ValueError:
                     pass
-            
+                
     def send_message(self):
         if self.text.strip():
             message = self.text.strip()
@@ -107,7 +147,7 @@ class ChatInput:
                 listener.receive_public_message(self.game.human_player.name, message)
             
             self.text = ""
-            self.game.current_speaker = None 
+            self.game.current_speaker = None
             
     def check_click(self, x, y):
         is_in_input = (self.x < x < self.x + self.width and self.y < y < self.y + self.height)
@@ -118,62 +158,100 @@ class ChatInput:
             self.active = is_in_input
 
 
-# --- Paramètres de la Fenêtre & États ---
-SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 700
-SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
-
-class GameState(Enum):
-    SETUP = 1 
-    NIGHT_HUMAN_ACTION = 2 
-    NIGHT_IA_ACTION = 3    
-    DEBATE = 4
-    HUMAN_ACTION = 5    
-    VOTING = 6
-    RESULT = 7
-    GAME_OVER = 8
-
-
 class LoupGarouGame(arcade.Window):
     
     def __init__(self, width, height, title, human_name="Humain_Lucie"):
         
-        super().__init__(width, height, title)
+        # 1. INITIALISATION EN MODE REDIMENSIONNABLE ET PLEIN ÉCRAN
+        super().__init__(width, height, title, resizable=True)
+        self.set_fullscreen(True)
+        
+        # 2. Chargement du fond d'écran
+        BACKGROUND_IMAGE_PATH = "images/fond/images.png" 
+        self.background_sprite = None
+        self.background_list = arcade.SpriteList() 
+        
+        if os.path.exists(BACKGROUND_IMAGE_PATH):
+            self.background_sprite = arcade.Sprite(
+                BACKGROUND_IMAGE_PATH,
+                scale=1.0 
+            )
+            self.background_list.append(self.background_sprite) 
+            print(f"Fond d'écran chargé comme Sprite.")
+        else:
+             print(f"ATTENTION : Image de fond non trouvée à '{BACKGROUND_IMAGE_PATH}'.")
+             
+        # 3. Chargement du Sprite du FEU DE CAMP
+        CAMPFIRE_IMAGE_PATH = "images/fond/campfire.png" 
+        self.campfire_sprite = None
+        self.campfire_list = arcade.SpriteList()
+        
+        if os.path.exists(CAMPFIRE_IMAGE_PATH):
+            self.campfire_sprite = arcade.Sprite(
+                CAMPFIRE_IMAGE_PATH,
+                scale=0.4 # TAILLE AUGMENTÉE
+            )
+            self.campfire_list.append(self.campfire_sprite)
+        else:
+            print(f"ATTENTION : Image du feu de camp non trouvée à '{CAMPFIRE_IMAGE_PATH}'.")
+
+
         arcade.set_background_color(arcade.color.DARK_BLUE_GRAY)
 
-        # 1. Initialisation du Moteur de Jeu
+        # 4. Initialisation du Moteur de Jeu
         self.game_manager = GameManager(human_player_name=human_name)
         self.human_player = self.game_manager.human_player
         
-        # 2. Variables d'Affichage et Log
+        # 5. Variables d'Affichage et Log
         self.log_messages = [] 
         self.player_sprites = arcade.SpriteList()
         self.player_map = {} 
         self.action_buttons = []
+        self.key_is_caps = False
         
-        # 3. Gestion du Temps et Vitesse d'écriture (Débat)
+        # --- Variables pour l'action Cupidon ---
+        self.cupid_targets = []
+        self.cupid_selection_buttons = []
+        # ---------------------------------------
+
+        # 6. Gestion du Temps et Vitesse d'écriture (Débat)
         self.debate_timer = 60 
         self.current_speaker = None
         self.current_message_full = ""
         self.current_message_display = ""
         self.typing_speed_counter = 0 
-        self.typing_delay = 5           
+        self.typing_delay = 5          
         self.messages_generated = 0           
         self.max_messages_per_debate = 10     
         self.message_is_complete = False 
         
-        # 4. INITIALISATION DU CHAT INPUT (Déplacé à droite)
+        # 7. INITIALISATION DES ÉLÉMENTS D'INTERFACE UTILISATEUR
+        self._setup_ui_elements() 
         
-        PANEL_WIDTH = SCREEN_WIDTH // 3 
+        # 8. Initialisation des Sprites
+        self._setup_sprites()
+        
+        # 9. Commencer le jeu
+        self.start_game_loop()
+
+    # --- Méthodes de gestion de l'État ---
+
+    def _setup_ui_elements(self):
+        """Initialise/Recalcule la position des éléments d'interface utilisateur."""
+        
+        PANEL_WIDTH = self.width // 3 
         INPUT_HEIGHT = 30
         
-        input_x = SCREEN_WIDTH - PANEL_WIDTH - 10 
+        input_x = self.width - PANEL_WIDTH - 10 
         input_y = 5 
         input_width = PANEL_WIDTH - 100 
         
-        self.chat_input = ChatInput(input_x, input_y, input_width, INPUT_HEIGHT, self)
+        if not hasattr(self, 'chat_input'):
+            self.chat_input = ChatInput(input_x, input_y, input_width, INPUT_HEIGHT, self)
+        else:
+            self.chat_input.update_position(input_x, input_y, input_width)
         
-        self.chat_input.send_button = MenuButton(
+        send_btn = MenuButton(
             input_x + input_width + 50, 
             input_y + INPUT_HEIGHT / 2, 
             90, 
@@ -181,50 +259,40 @@ class LoupGarouGame(arcade.Window):
             "Envoyer", 
             None
         )
-        
+        self.chat_input.send_button = send_btn
+
         self.start_button = MenuButton(
-            SCREEN_WIDTH / 2, 
-            SCREEN_HEIGHT / 2, 
+            self.width / 2, 
+            self.height / 2, 
             300, 
             60, 
             "COMMENCER LA PARTIE", 
             "start_game"
         )
         
-        # Initialisation des Sprites
-        self._setup_sprites()
-        
-        # Commencer le jeu
-        self.start_game_loop()
-
-    
     def _setup_sprites(self):
-        """
-        Crée les représentations visuelles des joueurs en chargeant des images.
-        Nécessite des images dans le dossier 'images/'.
-        """
+        """Crée les représentations visuelles des joueurs."""
         
         IMAGE_DIR = "images"
         if not os.path.isdir(IMAGE_DIR):
-            print(f"ATTENTION : Le dossier '{IMAGE_DIR}' n'existe pas. Utilisation de ronds par défaut.")
             return self._setup_circle_sprites() 
 
-
         num_players = len(self.game_manager.players)
-        center_x = SCREEN_WIDTH / 2
-        center_y = SCREEN_HEIGHT / 2
+        center_x = self.width / 2
+        center_y = self.height / 2
         angle_step = 360 / num_players
         
         available_images = [f for f in os.listdir(IMAGE_DIR) if f.endswith(('.png', '.jpg', '.jpeg'))]
         random.shuffle(available_images)
         
         SPRITE_SCALE = 0.1
+        CIRCLE_RADIUS = min(self.width, self.height) * 0.35
         
         for i, player in enumerate(self.game_manager.players):
             angle = i * angle_step
             rad_angle = math.radians(angle)
-            x = center_x + 250 * math.cos(rad_angle)
-            y = center_y + 250 * math.sin(rad_angle)
+            x = center_x + CIRCLE_RADIUS * math.cos(rad_angle)
+            y = center_y + CIRCLE_RADIUS * math.sin(rad_angle)
             
             image_path = None
 
@@ -247,21 +315,23 @@ class LoupGarouGame(arcade.Window):
     def _setup_circle_sprites(self):
         """Méthode de secours pour dessiner des cercles si les images manquent."""
         num_players = len(self.game_manager.players)
-        center_x = SCREEN_WIDTH / 2
-        center_y = SCREEN_HEIGHT / 2
+        center_x = self.width / 2
+        center_y = self.height / 2
         angle_step = 360 / num_players
+        CIRCLE_RADIUS = min(self.width, self.height) * 0.35
+        
         for i, player in enumerate(self.game_manager.players):
             angle = i * angle_step
             rad_angle = math.radians(angle)
-            x = center_x + 250 * math.cos(rad_angle)
-            y = center_y + 250 * math.sin(rad_angle)
+            x = center_x + CIRCLE_RADIUS * math.cos(rad_angle)
+            y = center_y + CIRCLE_RADIUS * math.sin(rad_angle)
             color = arcade.color.GREEN 
             sprite = arcade.SpriteCircle(50, color, center_x=x, center_y=y)
             self.player_sprites.append(sprite)
             self.player_map[player.name] = sprite
 
     def start_game_loop(self):
-        """Initialise le jeu en état de SETUP, sans déclencher la nuit."""
+        """Initialise le jeu en état de SETUP."""
         self.log_messages.append("--- Initialisation de la Partie ---")
         self.log_messages.append(f"Ton rôle est: {self.human_player.role.name}")
         
@@ -273,21 +343,48 @@ class LoupGarouGame(arcade.Window):
                  self.log_messages.append("🐺 **TU ES LOUP-GAROU** ! Tu es le seul loup de la partie.")
         
         self.current_state = GameState.SETUP 
-        self.log_messages.append(f"\nCliquez sur 'COMMENCER LA PARTIE' pour lancer la Nuit 1.")
+        self.log_messages.append(f"\nCliquez sur 'COMMENCER LA PARTIE' pour lancer la phase initiale.")
+
+    # --- Gestion des Phases Cupid / Nuit ---
+
+    def _start_night_phase(self):
+        """Déclenche la première nuit après la phase Cupidon (ou la nuit suivante)."""
+        
+        # Le Salvateur (PROTECT) a une action de nuit
+        active_night_roles = [NightAction.INVESTIGATE, NightAction.POTION, NightAction.PROTECT] 
+        
+        if self.human_player.is_alive and self.human_player.role.night_action in active_night_roles:
+            self.current_state = GameState.NIGHT_HUMAN_ACTION
+            self.log_messages.append(f"\nNUIT {self.game_manager.day}: Exécute ton action de {self.human_player.role.name}.")
+        else:
+            self.current_state = GameState.NIGHT_IA_ACTION
+            self.log_messages.append(f"\nNUIT {self.game_manager.day}: Les IA agissent.")
 
     def on_mouse_press(self, x, y, button, modifiers):
         """Gère le clic de la souris."""
         
         if self.current_state == GameState.SETUP:
             if self.start_button.check_click(x, y):
-                if self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
-                    self.current_state = GameState.NIGHT_HUMAN_ACTION
-                    self.log_messages.append(f"\nJOUR 1 : La NUIT tombe. Exécute ton action de {self.human_player.role.name}.")
+                cupidon = self.game_manager.get_player_by_role(Role.CUPIDON)
+                
+                # Vérifie si Cupidon humain doit agir (première nuit uniquement)
+                if cupidon and cupidon.is_human and not self.game_manager.is_cupid_phase_done:
+                    self.current_state = GameState.CUPID_ACTION
+                    self.log_messages.append("💘 Cupidon : Choisis DEUX joueurs à lier (clic sur leurs icônes).")
                 else:
-                    self.current_state = GameState.NIGHT_IA_ACTION
-                    self.log_messages.append(f"\nJOUR 1 : La NUIT tombe.")
+                    # Déclenche l'action Cupidon IA (si Cupidon IA) et passe à la nuit
+                    cupid_message = self.game_manager._handle_cupid_phase()
+                    if cupid_message:
+                        self.log_messages.append(cupid_message)
+                    
+                    # Le jour 1 est passé, on lance la nuit 1
+                    self.game_manager.day = 1 
+                    self._start_night_phase()
                 return 
                 
+        elif self.current_state == GameState.CUPID_ACTION:
+            self._handle_cupid_selection_click(x, y)
+
         elif self.current_state == GameState.HUMAN_ACTION:
             for btn in self.action_buttons:
                 if btn.check_click(x, y):
@@ -304,13 +401,112 @@ class LoupGarouGame(arcade.Window):
         elif self.current_state == GameState.NIGHT_HUMAN_ACTION:
              self._handle_human_night_action_click(x, y)
 
+    # --- Logique Cupidon UI ---
 
+    def _handle_cupid_selection_click(self, x, y):
+        """Gère la sélection des amoureux par Cupidon humain."""
+        
+        clicked_player_name = None
+        
+        # Vérification des clics sur les sprites des joueurs
+        for player in self.game_manager.get_alive_players():
+            sprite = self.player_map.get(player.name)
+            if sprite and sprite.collides_with_point((x, y)):
+                clicked_player_name = player.name
+                break
+        
+        if clicked_player_name:
+            
+            if clicked_player_name in self.cupid_targets:
+                self.cupid_targets.remove(clicked_player_name)
+                self.log_messages.append(f"💘 Désélectionné: {clicked_player_name}")
+            elif len(self.cupid_targets) < 2:
+                self.cupid_targets.append(clicked_player_name)
+                self.log_messages.append(f"💘 Sélectionné: {clicked_player_name} (Total: {len(self.cupid_targets)}/2)")
+
+            if len(self.cupid_targets) == 2:
+                # Applique le choix et passe à la nuit
+                choice_str = f"{self.cupid_targets[0]},{self.cupid_targets[1]}"
+                cupid_message = self.game_manager._handle_cupid_phase(human_choice=choice_str)
+                self.log_messages.append(cupid_message)
+                self.cupid_targets = [] # Nettoyer la sélection
+                
+                # Passer à la première phase de nuit
+                self.game_manager.day = 1 
+                self._start_night_phase()
+                
+    def _display_cupid_selection_indicators(self):
+        """Dessine un cercle pour les joueurs sélectionnés par Cupidon ET la ligne des amoureux."""
+        
+        # Dessiner la ligne entre les amoureux si la liaison est faite (IA ou Humain)
+        if self.game_manager.lovers and len(self.game_manager.lovers) == 2:
+            name1, name2 = self.game_manager.lovers
+            
+            # Récupérer les objets Joueur réels pour vérifier l'état
+            player1 = self.game_manager.get_player_by_name(name1)
+            player2 = self.game_manager.get_player_by_name(name2)
+            
+            # Récupérer les Sprites pour le dessin
+            sprite1 = self.player_map.get(name1)
+            sprite2 = self.player_map.get(name2)
+            
+            # Vérifier si les joueurs VIVANTS existent pour dessiner la ligne
+            if (sprite1 and sprite2 and player1 and player2 and 
+                player1.is_alive and player2.is_alive):
+                 # Dessine un lien rose entre les deux sprites vivants
+                 arcade.draw_line(
+                     sprite1.center_x, sprite1.center_y,
+                     sprite2.center_x, sprite2.center_y,
+                     arcade.color.PINK,
+                     line_width=3
+                 )
+
+
+        if self.current_state != GameState.CUPID_ACTION:
+            return
+
+        # Dessiner l'indicateur de sélection pour l'action en cours (CUPID_ACTION)
+        for player_name in self.cupid_targets:
+            sprite = self.player_map.get(player_name)
+            if sprite:
+                # Dessine un indicateur de sélection
+                arcade.draw_circle_outline(
+                    sprite.center_x, 
+                    sprite.center_y, 
+                    sprite.width * 0.6, 
+                    arcade.color.PINK, 
+                    border_width=3
+                )
+                
+    # --- Autres Méthodes de Classe (on_resize, on_key_press, etc.) ---
+
+    def on_resize(self, width, height):
+        """Appelée chaque fois que la fenêtre est redimensionnée."""
+        super().on_resize(width, height)
+        
+        self._setup_ui_elements()
+        
+        self.player_sprites = arcade.SpriteList()
+        self.player_map = {} 
+        self._setup_sprites()
+        
+        # Recalculer la position du feu de camp
+        if self.campfire_sprite:
+            self.campfire_sprite.center_x = width / 2
+            self.campfire_sprite.center_y = height / 2 - 100 
+        
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
         
+        if symbol == arcade.key.CAPSLOCK:
+            self.key_is_caps = not self.key_is_caps
+            
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
-            self.chat_input.handle_key_press(symbol)
+            self.chat_input.handle_key_press(symbol, modifiers)
         
+        if symbol == arcade.key.F:
+            self.set_fullscreen(not self.fullscreen)
+
         elif symbol == arcade.key.SPACE:
             if self.current_state == GameState.DEBATE:
                 self.debate_timer = 0 
@@ -326,21 +522,37 @@ class LoupGarouGame(arcade.Window):
         """Affichage : appelé à chaque image pour dessiner."""
         self.clear()
         
+        # --- 1. DESSIN DU FOND D'ÉCRAN via SPRITELIST ---
+        if self.background_sprite:
+            self.background_sprite.width = self.width
+            self.background_sprite.height = self.height
+            self.background_sprite.center_x = self.width / 2
+            self.background_sprite.center_y = self.height / 2
+            self.background_list.draw() 
+        
+        # --- 2. DESSIN DU FEU DE CAMP AU CENTRE ---
+        if self.campfire_sprite:
+            self.campfire_sprite.center_x = self.width / 2
+            self.campfire_sprite.center_y = self.height / 2 - 100 
+            self.campfire_list.draw()
+            
+        # ----------------------------------------------------------------
+
         human_is_wolf = (self.human_player.role and self.human_player.role.camp == Camp.LOUP)
         wolf_teammates = self.human_player.wolf_teammates
         
-        # Dessiner les joueurs
+        # 3. Dessiner les joueurs et la Spritelist
         for player in self.game_manager.players:
              sprite = self.player_map.get(player.name)
              if sprite:
                  color = arcade.color.WHITE
                  
-                 # --- GESTION DE LA MORT PAR TRANSPARENCE (ALPHA) ---
+                 # GESTION DE LA MORT
                  if not player.is_alive:
-                     color = arcade.color.RED # Nom en rouge
-                     sprite.alpha = 100 # Rendre le sprite semi-transparent (mort)
+                     color = arcade.color.RED
+                     sprite.alpha = 100
                  else:
-                     sprite.alpha = 255 # Rendre le sprite opaque (vivant)
+                     sprite.alpha = 255
                      
                  # Mise en couleur des Loups alliés
                  if human_is_wolf and player.name in wolf_teammates:
@@ -352,10 +564,22 @@ class LoupGarouGame(arcade.Window):
                      sprite.center_x, sprite.center_y + 60, color, 12, anchor_x="center"
                  )
                  
+                 # Affichage du rôle si la partie est terminée OU si c'est le joueur humain (pour référence)
                  if self.current_state == GameState.GAME_OVER or player.is_human:
                      role_text = f"Role: {player.role.name}"
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
+                 
+                 # Indicateur pour le Maire (M)
+                 if player.role == Role.MAIRE and player.is_alive:
+                     arcade.draw_text(
+                         "M", sprite.center_x + 30, sprite.center_y + 60, 
+                         arcade.color.GOLD, 14, anchor_x="center"
+                     )
 
+
+        # Afficher l'indicateur de sélection Cupidon et le lien d'amour (Ceci dessine aussi la ligne rose)
+        self._display_cupid_selection_indicators()
+        
         self.player_sprites.draw()
         
         # --- DESSINER LE CHAT LOCALISÉ ---
@@ -370,11 +594,11 @@ class LoupGarouGame(arcade.Window):
         for btn in self.action_buttons:
             btn.draw()
             
-        # Afficher les boutons de nuit si nécessaire (et s'ils ne sont pas déjà affichés)
+        # Afficher les boutons de nuit si nécessaire
         if self.current_state == GameState.NIGHT_HUMAN_ACTION and not self.action_buttons:
             self._display_human_night_action_buttons()
         
-        # Dessiner le champ de chat si en mode DEBATE (Input Humain)
+        # Dessiner le champ de chat si en mode DEBATE
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
             self.chat_input.draw()
             
@@ -397,24 +621,21 @@ class LoupGarouGame(arcade.Window):
                 
                 cursor = ("|" if is_typing and int(time.time() * 2) % 2 == 0 else "")
                 
-                # Largeur réduite et position ajustée pour éviter le chevauchement
                 CHAT_WIDTH = 120 
                 TEXT_X = sprite.center_x - CHAT_WIDTH / 2 + 5
                 TEXT_Y = sprite.center_y - 90 
                 
-                # Le texte est dessiné directement sans fond de bulle
                 arcade.draw_text(
                     f"{display_text}{cursor}", 
                     TEXT_X, 
                     TEXT_Y, 
-                    arcade.color.LIGHT_YELLOW, # Couleur standard et visible
+                    arcade.color.LIGHT_YELLOW,
                     12, 
                     width=CHAT_WIDTH - 10,
                     multiline=True,
                     anchor_x="left",
                 )
                 
-                # Indication visuelle de frappe
                 if is_typing:
                     arcade.draw_text("...", sprite.center_x + 40, sprite.center_y + 40, arcade.color.AZURE, 18)
 
@@ -422,7 +643,7 @@ class LoupGarouGame(arcade.Window):
     def on_update(self, delta_time):
         """Logique : appelé à chaque image pour mettre à jour l'état."""
         
-        if self.current_state in [GameState.SETUP, GameState.NIGHT_HUMAN_ACTION]:
+        if self.current_state in [GameState.SETUP, GameState.CUPID_ACTION, GameState.NIGHT_HUMAN_ACTION]:
             return
 
         if self.current_state == GameState.NIGHT_IA_ACTION:
@@ -448,21 +669,23 @@ class LoupGarouGame(arcade.Window):
                  self.log_messages.append(f"\n🎉 VICTOIRE des {winner.value} ! Fin de la partie.")
                  self.current_state = GameState.GAME_OVER
             else:
-                 self.log_messages.append(f"\nJOUR {self.game_manager.day + 1} : La NUIT tombe.") 
-                 if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
+                 self.game_manager.day += 1
+                 self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.") 
+                 # La phase Cupidon est ignorée après la première nuit (day > 1)
+                 if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION, NightAction.PROTECT]:
                      self.current_state = GameState.NIGHT_HUMAN_ACTION
                  else:
                      self.current_state = GameState.NIGHT_IA_ACTION
 
-    
+        
     # --- LOGIQUE D'ACTION HUMAINE DE NUIT ---
 
     def _display_human_night_action_buttons(self):
-        """Prépare les boutons d'action de nuit pour la Voyante/Sorcière humaine."""
+        """Prépare les boutons d'action de nuit pour la Voyante/Sorcière/Salvateur humain."""
         
         self.action_buttons = []
         alive = self.game_manager.get_alive_players()
-        role_name = self.human_player.role.name
+        role_name = self.human_player.role.name if self.human_player.role else "N/A" 
         
         button_y = 50 
         button_width = 150
@@ -475,7 +698,7 @@ class LoupGarouGame(arcade.Window):
             action = "ENQUÊTER"
             targets_msg = "Choisis qui enquêter (Voyante) :"
             
-            start_x = SCREEN_WIDTH / 2 - (len(targets) * (button_width + 10) / 2) + 50
+            start_x = self.width / 2 - (len(targets) * (button_width + 10) / 2) + 50
             for i, target in enumerate(targets):
                 x = start_x + (i * (button_width + 10))
                 btn = MenuButton(
@@ -489,7 +712,7 @@ class LoupGarouGame(arcade.Window):
         elif role_name == "Sorcière" and (self.human_player.has_kill_potion or self.human_player.has_life_potion):
             targets_msg = "Sorcière: Choisis ton action"
             
-            x_start = SCREEN_WIDTH / 2 - 150
+            x_start = self.width / 2 - 150
             if self.human_player.has_kill_potion:
                  self.action_buttons.append(MenuButton(x_start, button_y, 140, button_height, "TUER [Potion Mort]", "TUER"))
                  x_start += 150
@@ -502,7 +725,33 @@ class LoupGarouGame(arcade.Window):
             self.log_messages.append(f"-> {targets_msg}")
             return
             
+        elif role_name == "Salvateur":
+            targets_msg = "Choisis qui protéger (Salvateur) :"
+            
+            # Exclusion : ne peut pas se protéger lui-même ni la cible précédente
+            last_target = self.human_player.last_protected_target
+            
+            # Inclure tous les vivants SAUF soi-même et la cible précédente
+            protect_targets = [p for p in alive if p.name != self.human_player.name and p.name != last_target]
+            
+            start_x = self.width / 2 - (len(protect_targets) * (button_width + 10) / 2) + 50
+            
+            for i, target in enumerate(protect_targets):
+                x = start_x + (i * (button_width + 10))
+                btn = MenuButton(
+                    x, button_y, button_width, button_height, 
+                    f"PROTÉGER {target.name}", 
+                    f"PROTÉGER:{target.name}" 
+                )
+                self.action_buttons.append(btn)
+            
+            if last_target:
+                self.log_messages.append(f"⚠️ **Attention :** Impossible de protéger {last_target} deux nuits de suite.")
+            self.log_messages.append(f"-> {role_name}: {targets_msg}")
+            return
+            
         else:
+            # S'il n'y a pas d'action de nuit humaine, on passe à l'IA.
             self.current_state = GameState.NIGHT_IA_ACTION
             return
 
@@ -520,7 +769,7 @@ class LoupGarouGame(arcade.Window):
 
         self.action_buttons = [] 
         
-        if self.human_player.role.name == "Voyante" and ":" in clicked_action_data:
+        if self.human_player.role == Role.VOYANTE and ":" in clicked_action_data:
             action_type, target_name = clicked_action_data.split(":", 1)
             target = next((p for p in self.game_manager.players if p.name == target_name), None)
             
@@ -531,7 +780,7 @@ class LoupGarouGame(arcade.Window):
                 self.current_state = GameState.NIGHT_IA_ACTION
                 return
                 
-        elif self.human_player.role.name == "Sorcière" and clicked_action_data in ["TUER", "SAUVER", "PASSER"]:
+        elif self.human_player.role == Role.SORCIERE and clicked_action_data in ["TUER", "SAUVER", "PASSER"]:
             
             if clicked_action_data == "PASSER":
                 self.log_messages.append("Action de nuit passée.")
@@ -547,6 +796,18 @@ class LoupGarouGame(arcade.Window):
             self.current_state = GameState.NIGHT_IA_ACTION
             return
             
+        elif self.human_player.role == Role.SALVATEUR and ":" in clicked_action_data:
+            action_type, target_name = clicked_action_data.split(":", 1)
+            target = self.game_manager.get_player_by_name(target_name)
+            
+            if action_type == "PROTÉGER" and target:
+                # Stocker la cible pour que _night_phase l'utilise
+                self.game_manager.night_protected_target = target_name
+                self.human_player.last_protected_target = target_name
+                self.log_messages.append(f"🛡️ Le Salvateur protège **{target.name}** cette nuit.")
+                self.current_state = GameState.NIGHT_IA_ACTION
+                return
+        
         else:
              self.log_messages.append("Action invalide ou non supportée.")
              self.current_state = GameState.NIGHT_IA_ACTION
@@ -624,7 +885,7 @@ class LoupGarouGame(arcade.Window):
         
         voting_targets = [p for p in alive if p != self.human_player]
         
-        CENTER_X = SCREEN_WIDTH / 2 
+        CENTER_X = self.width / 2 
         start_x = CENTER_X - (len(voting_targets) * (button_width + 10) / 2)
         
         for i, target in enumerate(voting_targets):
@@ -638,24 +899,24 @@ class LoupGarouGame(arcade.Window):
         self.log_messages.append(f"-> {self.human_player.name}, choisis ta victime (CLIC) :")
 
 
-    # --- MÉTHODES D'AFFICHAGE (SANS UNDERSCORE) ---
+    # --- MÉTHODES D'AFFICHAGE ---
     
     def draw_log(self):
         """Dessine le Journal de Bord (Historique Permanent) à GAUCHE."""
         LOG_X_START = 10
-        LOG_WIDTH = SCREEN_WIDTH // 5
-        LOG_HEIGHT = SCREEN_HEIGHT - 40 
+        LOG_WIDTH = self.width // 5
+        LOG_HEIGHT = self.height - 40 
         
         arcade.draw_lbwh_rectangle_filled(
             LOG_X_START, 
-            10, # Bottom Y position
+            10,
             LOG_WIDTH, 
             LOG_HEIGHT, 
             (20, 20, 20, 180) 
         )
         
         x_pos = LOG_X_START + 10
-        y_pos = SCREEN_HEIGHT - 30 
+        y_pos = self.height - 30 
         line_spacing = 85 
         font_size = 14 
         
@@ -680,25 +941,33 @@ class LoupGarouGame(arcade.Window):
     def draw_status(self):
         """Dessine les compteurs (Loups, Timer) à DROITE, en haut."""
         
-        PANEL_WIDTH = SCREEN_WIDTH // 3
-        RIGHT_PANEL_START_X = SCREEN_WIDTH - PANEL_WIDTH
+        PANEL_WIDTH = self.width // 3
+        RIGHT_PANEL_START_X = self.width - PANEL_WIDTH
         
         arcade.draw_text(
             f"Loups Vivants : {self.game_manager.wolves_alive}",
-            RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 30, arcade.color.WHITE, 16
+            RIGHT_PANEL_START_X + 20, self.height - 30, arcade.color.WHITE, 16
         )
         
         if self.current_state in [GameState.DEBATE, GameState.VOTING, GameState.HUMAN_ACTION]:
              arcade.draw_text(
                 f"Temps Restant : {int(self.debate_timer)}s",
-                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 60, arcade.color.YELLOW, 14
+                RIGHT_PANEL_START_X + 20, self.height - 60, arcade.color.YELLOW, 14
             )
         
         if self.current_state == GameState.NIGHT_HUMAN_ACTION:
+             # Afficher l'action requise (Salvateur ou autre)
+             action_text = f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})"
              arcade.draw_text(
-                f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})",
-                RIGHT_PANEL_START_X + 20, SCREEN_HEIGHT - 200, arcade.color.ORANGE, 16
+                action_text,
+                RIGHT_PANEL_START_X + 20, self.height - 200, arcade.color.ORANGE, 16
             )
+        elif self.current_state == GameState.CUPID_ACTION:
+             arcade.draw_text(
+                f"PHASE CUPIDON (Sélectionnez 2)",
+                RIGHT_PANEL_START_X + 20, self.height - 200, arcade.color.PINK, 16
+            )
+
 
 # --- Lancement du Jeu ---
 
@@ -710,10 +979,17 @@ def main():
 
 if __name__ == "__main__":
     
+    # S'assure que les dossiers existent pour éviter des erreurs
     if not os.path.exists("context"):
         os.makedirs("context")
-        for i in range(1, 10):
-            with open(f"context/perso_placeholder_{i}.txt", "w", encoding="utf-8") as f:
-                f.write(f"Tu es l'IA {i}. Ton rôle est d'être un joueur de Loup Garou. Réponds de manière concise.")
+        # Ces fichiers de contexte ne seront créés que s'ils n'existent pas déjà
+        # et seront remplacés par les fichiers générés par game_core._create_player_instance
+        # s'il y a un décalage de noms.
+        pass
+    
+    if not os.path.exists("images"):
+        os.makedirs("images")
+    if not os.path.exists("images/fond"):
+        os.makedirs("images/fond")
 
     main()
