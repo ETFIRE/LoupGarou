@@ -81,6 +81,14 @@ class Role(Enum):
         "night_action": NightAction.PROTECT,
         "priority": 25 # Priorité entre la Voyante (20) et les Loups (30)
     }
+
+    # --- RÔLE : ANCIEN (NOUVEAU) ---
+    ANCIEN = {
+        "name": "Ancien",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.NONE, 
+        "priority": 0
+    }
     
 
     # --- Pour faciliter la gestion des rôles IA ---

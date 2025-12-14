@@ -25,7 +25,8 @@ except ImportError:
             self.has_life_potion = False
             self.wolf_teammates = []
             self.has_hunter_shot = True
-            self.last_protected_target = None # <--- CORRECTION APPLIQUÉE
+            self.last_protected_target = None
+            self.is_ancient_protected = False
             self.history = []
         def assign_role(self, role): self.role = role
         def receive_public_message(self, speaker, message): pass
@@ -64,10 +65,13 @@ class Player:
         self.has_life_potion = False
         self.wolf_teammates = [] 
         self.has_hunter_shot = True
-        self.last_protected_target = None # NOUVEAU POUR SALVATEUR
+        self.last_protected_target = None
+        self.is_ancient_protected = False
 
     def assign_role(self, role):
         self.role = role
+        if role == Role.ANCIEN:
+            self.is_ancient_protected = True
     
     def __repr__(self):
         status = "Vivant" if self.is_alive else "Mort"
@@ -93,7 +97,8 @@ class GameManager:
             Role.CUPIDON, 
             Role.MAIRE, 
             Role.SALVATEUR, # NOUVEAU RÔLE
-            Role.VILLAGEOIS, # 1 VILLAIGEOIS restant (Total: 10)
+            Role.ANCIEN, # NOUVEAU RÔLE
+            Role.VILLAGEOIS,
         ]
         self.available_roles = [r.value for r in roles_to_use] 
         
@@ -243,6 +248,18 @@ class GameManager:
         message = f"❌ {target.name} est mort(e) ({reason}). Rôle: {target.role.name}."
         
         hunter_eliminated_target = None
+
+        if target.role == Role.ANCIEN and target.is_ancient_protected and "lynché" not in reason:
+            target.is_ancient_protected = False
+            return f"🌟 **L'ANCIEN** a été attaqué, mais son totem de protection lui a sauvé la vie cette fois ! Il est désormais vulnérable."
+        
+        # S'il survit, on sort de la fonction sans le tuer ni activer les effets de mort.
+        if target.role == Role.ANCIEN and not target.is_ancient_protected and "lynché" not in reason:
+            # S'il a déjà utilisé son jeton, il meurt normalement et active les effets.
+            pass
+
+        target.is_alive = False
+        message = f"❌ {target.name} est mort(e) ({reason}). Rôle: {target.role.name}."
         
         # 1. LOGIQUE DU CHASSEUR
         if target.role == Role.CHASSEUR and target.has_hunter_shot:
