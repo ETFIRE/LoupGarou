@@ -15,7 +15,24 @@ load_dotenv()
 
 # Importation de vos classes de jeu
 from game_core import GameManager, Player 
-from enums_and_roles import Camp, NightAction 
+from enums_and_roles import Camp, NightAction, Role # Role importé pour le Cupidon
+
+# --- Paramètres de la Fenêtre & États ---
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 700
+SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
+
+class GameState(Enum):
+    SETUP = 1 
+    CUPID_ACTION = 15 # NOUVEL ÉTAT POUR L'ACTION CUPIDON
+    NIGHT_HUMAN_ACTION = 2 
+    NIGHT_IA_ACTION = 3     
+    DEBATE = 4
+    HUMAN_ACTION = 5     
+    VOTING = 6
+    RESULT = 7
+    GAME_OVER = 8
+
 
 # --- Bouton Interactif ---
 class MenuButton:
@@ -140,22 +157,6 @@ class ChatInput:
             self.active = is_in_input
 
 
-# --- Paramètres de la Fenêtre & États ---
-SCREEN_WIDTH = 1000
-SCREEN_HEIGHT = 700
-SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
-
-class GameState(Enum):
-    SETUP = 1 
-    NIGHT_HUMAN_ACTION = 2 
-    NIGHT_IA_ACTION = 3     
-    DEBATE = 4
-    HUMAN_ACTION = 5     
-    VOTING = 6
-    RESULT = 7
-    GAME_OVER = 8
-
-
 class LoupGarouGame(arcade.Window):
     
     def __init__(self, width, height, title, human_name="Humain_Lucie"):
@@ -185,10 +186,9 @@ class LoupGarouGame(arcade.Window):
         self.campfire_list = arcade.SpriteList()
         
         if os.path.exists(CAMPFIRE_IMAGE_PATH):
-            # L'échelle (0.2) devra peut-être être ajustée selon la taille de votre image
             self.campfire_sprite = arcade.Sprite(
                 CAMPFIRE_IMAGE_PATH,
-                scale=0.5 
+                scale=0.4 # TAILLE AUGMENTÉE
             )
             self.campfire_list.append(self.campfire_sprite)
         else:
@@ -207,6 +207,11 @@ class LoupGarouGame(arcade.Window):
         self.player_map = {} 
         self.action_buttons = []
         self.key_is_caps = False
+        
+        # --- Variables pour l'action Cupidon ---
+        self.cupid_targets = []
+        self.cupid_selection_buttons = []
+        # ---------------------------------------
 
         # 6. Gestion du Temps et Vitesse d'écriture (Débat)
         self.debate_timer = 60 
@@ -227,6 +232,8 @@ class LoupGarouGame(arcade.Window):
         
         # 9. Commencer le jeu
         self.start_game_loop()
+
+    # --- Méthodes de gestion de l'État ---
 
     def _setup_ui_elements(self):
         """Initialise/Recalcule la position des éléments d'interface utilisateur."""
@@ -335,21 +342,44 @@ class LoupGarouGame(arcade.Window):
                  self.log_messages.append("🐺 **TU ES LOUP-GAROU** ! Tu es le seul loup de la partie.")
         
         self.current_state = GameState.SETUP 
-        self.log_messages.append(f"\nCliquez sur 'COMMENCER LA PARTIE' pour lancer la Nuit 1.")
+        self.log_messages.append(f"\nCliquez sur 'COMMENCER LA PARTIE' pour lancer la phase initiale.")
+
+    # --- Gestion des Phases Cupid / Nuit ---
+
+    def _start_night_phase(self):
+        """Déclenche la première nuit après la phase Cupidon (ou la nuit suivante)."""
+        # La phase Cupidon est maintenant terminée
+        
+        # Vérification si l'humain a un rôle actif de nuit (Voyante/Sorcière)
+        if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
+            self.current_state = GameState.NIGHT_HUMAN_ACTION
+            self.log_messages.append(f"\nNUIT {self.game_manager.day}: Exécute ton action de {self.human_player.role.name}.")
+        else:
+            self.current_state = GameState.NIGHT_IA_ACTION
+            self.log_messages.append(f"\nNUIT {self.game_manager.day}: Les IA agissent.")
 
     def on_mouse_press(self, x, y, button, modifiers):
         """Gère le clic de la souris."""
         
         if self.current_state == GameState.SETUP:
             if self.start_button.check_click(x, y):
-                if self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
-                    self.current_state = GameState.NIGHT_HUMAN_ACTION
-                    self.log_messages.append(f"\nJOUR 1 : La NUIT tombe. Exécute ton action de {self.human_player.role.name}.")
+                cupidon = self.game_manager.get_player_by_role(Role.CUPIDON)
+                
+                # Vérifie si Cupidon humain doit agir (première nuit uniquement)
+                if cupidon and cupidon.is_human and not self.game_manager.is_cupid_phase_done:
+                    self.current_state = GameState.CUPID_ACTION
+                    self.log_messages.append("💘 Cupidon : Choisis DEUX joueurs à lier (clic sur leurs icônes).")
                 else:
-                    self.current_state = GameState.NIGHT_IA_ACTION
-                    self.log_messages.append(f"\nJOUR 1 : La NUIT tombe.")
+                    # Déclenche l'action Cupidon IA (si Cupidon IA) et passe à la nuit
+                    cupid_message = self.game_manager._handle_cupid_phase()
+                    if cupid_message:
+                        self.log_messages.append(cupid_message)
+                    self._start_night_phase()
                 return 
                 
+        elif self.current_state == GameState.CUPID_ACTION:
+            self._handle_cupid_selection_click(x, y)
+
         elif self.current_state == GameState.HUMAN_ACTION:
             for btn in self.action_buttons:
                 if btn.check_click(x, y):
@@ -366,6 +396,60 @@ class LoupGarouGame(arcade.Window):
         elif self.current_state == GameState.NIGHT_HUMAN_ACTION:
              self._handle_human_night_action_click(x, y)
 
+    # --- Logique Cupidon UI ---
+
+    def _handle_cupid_selection_click(self, x, y):
+        """Gère la sélection des amoureux par Cupidon humain."""
+        
+        clicked_player_name = None
+        
+        # Vérification des clics sur les sprites des joueurs
+        for player in self.game_manager.get_alive_players():
+            sprite = self.player_map.get(player.name)
+            # Utilisation de la méthode collides_with_point standard pour les clics sur les sprites
+            if sprite and sprite.collides_with_point((x, y)):
+                clicked_player_name = player.name
+                break
+        
+        if clicked_player_name:
+            # Assurez-vous que les joueurs sont distincts si c'est la règle (ici, nous autorisons tout le monde)
+            
+            if clicked_player_name in self.cupid_targets:
+                self.cupid_targets.remove(clicked_player_name)
+                self.log_messages.append(f"💘 Désélectionné: {clicked_player_name}")
+            elif len(self.cupid_targets) < 2:
+                self.cupid_targets.append(clicked_player_name)
+                self.log_messages.append(f"💘 Sélectionné: {clicked_player_name} (Total: {len(self.cupid_targets)}/2)")
+
+            if len(self.cupid_targets) == 2:
+                # Applique le choix et passe à la nuit
+                choice_str = f"{self.cupid_targets[0]},{self.cupid_targets[1]}"
+                cupid_message = self.game_manager._handle_cupid_phase(human_choice=choice_str)
+                self.log_messages.append(cupid_message)
+                self.cupid_targets = [] # Nettoyer la sélection
+                
+                # Passer à la première phase de nuit
+                self._start_night_phase()
+                
+    def _display_cupid_selection_indicators(self):
+        """Dessine un cercle pour les joueurs sélectionnés par Cupidon."""
+        if self.current_state != GameState.CUPID_ACTION:
+            return
+
+        for player_name in self.cupid_targets:
+            sprite = self.player_map.get(player_name)
+            if sprite:
+                # Dessine un indicateur de sélection
+                arcade.draw_circle_outline(
+                    sprite.center_x, 
+                    sprite.center_y, 
+                    sprite.width * 0.6, 
+                    arcade.color.PINK, 
+                    border_width=3
+                )
+                
+    # --- Autres Méthodes de Classe (on_resize, on_key_press, etc.) ---
+
     def on_resize(self, width, height):
         """Appelée chaque fois que la fenêtre est redimensionnée."""
         super().on_resize(width, height)
@@ -379,7 +463,7 @@ class LoupGarouGame(arcade.Window):
         # Recalculer la position du feu de camp
         if self.campfire_sprite:
             self.campfire_sprite.center_x = width / 2
-            self.campfire_sprite.center_y = height / 2 - 100 # Positionner sous le cercle des joueurs
+            self.campfire_sprite.center_y = height / 2 - 100 
         
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
@@ -418,7 +502,6 @@ class LoupGarouGame(arcade.Window):
         
         # --- 2. DESSIN DU FEU DE CAMP AU CENTRE ---
         if self.campfire_sprite:
-            # Positionnement centré ajusté (100 pixels en dessous du centre)
             self.campfire_sprite.center_x = self.width / 2
             self.campfire_sprite.center_y = self.height / 2 - 100 
             self.campfire_list.draw()
@@ -455,6 +538,9 @@ class LoupGarouGame(arcade.Window):
                      role_text = f"Role: {player.role.name}"
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
 
+        # Afficher l'indicateur de sélection Cupidon APRÈS les sprites pour qu'il soit visible
+        self._display_cupid_selection_indicators()
+        
         self.player_sprites.draw()
         
         # --- DESSINER LE CHAT LOCALISÉ ---
@@ -518,7 +604,7 @@ class LoupGarouGame(arcade.Window):
     def on_update(self, delta_time):
         """Logique : appelé à chaque image pour mettre à jour l'état."""
         
-        if self.current_state in [GameState.SETUP, GameState.NIGHT_HUMAN_ACTION]:
+        if self.current_state in [GameState.SETUP, GameState.CUPID_ACTION, GameState.NIGHT_HUMAN_ACTION]:
             return
 
         if self.current_state == GameState.NIGHT_IA_ACTION:
@@ -796,6 +882,12 @@ class LoupGarouGame(arcade.Window):
                 f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})",
                 RIGHT_PANEL_START_X + 20, self.height - 200, arcade.color.ORANGE, 16
             )
+        elif self.current_state == GameState.CUPID_ACTION:
+             arcade.draw_text(
+                f"PHASE CUPIDON (1/2 Sélections)",
+                RIGHT_PANEL_START_X + 20, self.height - 200, arcade.color.PINK, 16
+            )
+
 
 # --- Lancement du Jeu ---
 
