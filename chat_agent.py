@@ -38,6 +38,7 @@ class ChatAgent(Player):
         
         super().__init__(name, is_human)
         
+        self.last_protected_target = None
        
         if "GROQ_KEY" not in os.environ:
              raise EnvironmentError("GROQ_KEY non trouvée. Assurez-vous d'avoir un fichier .env.")

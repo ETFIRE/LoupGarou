@@ -15,6 +15,7 @@ class NightAction(Enum):
     INVESTIGATE = 2  # Voyante
     POTION = 3       # Sorcière
     PAIR = 4         # Cupidon (NOUVEAU)
+    PROTECT = 5      # Salvateur
 
 # --- Définition des Rôles et de leurs Attributs ---
 class Role(Enum):
@@ -71,6 +72,14 @@ class Role(Enum):
         "camp": Camp.VILLAGE,
         "night_action": NightAction.NONE, # L'action est pendant le jour (vote)
         "priority": 0
+    }
+
+    # --- NOUVEAU RÔLE : Salvateur ---
+    SALVATEUR = {
+        "name": "Salvateur",
+        "camp": Camp.VILLAGE,
+        "night_action": NightAction.PROTECT,
+        "priority": 25 # Priorité entre la Voyante (20) et les Loups (30)
     }
     
 

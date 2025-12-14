@@ -15,7 +15,7 @@ load_dotenv()
 
 # Importation de vos classes de jeu
 from game_core import GameManager, Player 
-from enums_and_roles import Camp, NightAction, Role # Role importé pour le Cupidon et le MAIRE
+from enums_and_roles import Camp, NightAction, Role # Role importé pour tous les rôles spéciaux
 
 # --- Paramètres de la Fenêtre & États ---
 SCREEN_WIDTH = 1000
@@ -24,7 +24,7 @@ SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
 
 class GameState(Enum):
     SETUP = 1 
-    CUPID_ACTION = 15 # NOUVEL ÉTAT POUR L'ACTION CUPIDON
+    CUPID_ACTION = 15 # ÉTAT POUR L'ACTION CUPIDON
     NIGHT_HUMAN_ACTION = 2 
     NIGHT_IA_ACTION = 3     
     DEBATE = 4
@@ -54,6 +54,7 @@ class MenuButton:
             "Voter": arcade.color.DARK_RED,
             "COMMENCER": arcade.color.DARK_GREEN,
             "Envoyer": arcade.color.DARK_CYAN,
+            "PROTÉGER": arcade.color.SKY_BLUE, # COULEUR SALVATEUR
             "DEFAULT": arcade.color.DARK_BLUE
         }
         
@@ -181,7 +182,7 @@ class LoupGarouGame(arcade.Window):
              print(f"ATTENTION : Image de fond non trouvée à '{BACKGROUND_IMAGE_PATH}'.")
              
         # 3. Chargement du Sprite du FEU DE CAMP
-        CAMPFIRE_IMAGE_PATH = "images/fond/campfire.png" # <--- ASSUREZ-VOUS QUE CE CHEMIN EST CORRECT
+        CAMPFIRE_IMAGE_PATH = "images/fond/campfire.png" 
         self.campfire_sprite = None
         self.campfire_list = arcade.SpriteList()
         
@@ -348,10 +349,11 @@ class LoupGarouGame(arcade.Window):
 
     def _start_night_phase(self):
         """Déclenche la première nuit après la phase Cupidon (ou la nuit suivante)."""
-        # La phase Cupidon est maintenant terminée
         
-        # Vérification si l'humain a un rôle actif de nuit (Voyante/Sorcière)
-        if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
+        # Le Salvateur (PROTECT) a une action de nuit
+        active_night_roles = [NightAction.INVESTIGATE, NightAction.POTION, NightAction.PROTECT] 
+        
+        if self.human_player.is_alive and self.human_player.role.night_action in active_night_roles:
             self.current_state = GameState.NIGHT_HUMAN_ACTION
             self.log_messages.append(f"\nNUIT {self.game_manager.day}: Exécute ton action de {self.human_player.role.name}.")
         else:
@@ -374,6 +376,9 @@ class LoupGarouGame(arcade.Window):
                     cupid_message = self.game_manager._handle_cupid_phase()
                     if cupid_message:
                         self.log_messages.append(cupid_message)
+                    
+                    # Le jour 1 est passé, on lance la nuit 1
+                    self.game_manager.day = 1 
                     self._start_night_phase()
                 return 
                 
@@ -406,7 +411,6 @@ class LoupGarouGame(arcade.Window):
         # Vérification des clics sur les sprites des joueurs
         for player in self.game_manager.get_alive_players():
             sprite = self.player_map.get(player.name)
-            # Utilisation de la méthode collides_with_point standard pour les clics sur les sprites
             if sprite and sprite.collides_with_point((x, y)):
                 clicked_player_name = player.name
                 break
@@ -428,6 +432,7 @@ class LoupGarouGame(arcade.Window):
                 self.cupid_targets = [] # Nettoyer la sélection
                 
                 # Passer à la première phase de nuit
+                self.game_manager.day = 1 
                 self._start_night_phase()
                 
     def _display_cupid_selection_indicators(self):
@@ -437,7 +442,6 @@ class LoupGarouGame(arcade.Window):
         if self.game_manager.lovers and len(self.game_manager.lovers) == 2:
             name1, name2 = self.game_manager.lovers
             
-            # --- CORRECTION ICI ---
             # Récupérer les objets Joueur réels pour vérifier l'état
             player1 = self.game_manager.get_player_by_name(name1)
             player2 = self.game_manager.get_player_by_name(name2)
@@ -456,7 +460,6 @@ class LoupGarouGame(arcade.Window):
                      arcade.color.PINK,
                      line_width=3
                  )
-        # ------------------------
 
 
         if self.current_state != GameState.CUPID_ACTION:
@@ -669,7 +672,7 @@ class LoupGarouGame(arcade.Window):
                  self.game_manager.day += 1
                  self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.") 
                  # La phase Cupidon est ignorée après la première nuit (day > 1)
-                 if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION]:
+                 if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION, NightAction.PROTECT]:
                      self.current_state = GameState.NIGHT_HUMAN_ACTION
                  else:
                      self.current_state = GameState.NIGHT_IA_ACTION
@@ -678,11 +681,10 @@ class LoupGarouGame(arcade.Window):
     # --- LOGIQUE D'ACTION HUMAINE DE NUIT ---
 
     def _display_human_night_action_buttons(self):
-        """Prépare les boutons d'action de nuit pour la Voyante/Sorcière humaine."""
+        """Prépare les boutons d'action de nuit pour la Voyante/Sorcière/Salvateur humain."""
         
         self.action_buttons = []
         alive = self.game_manager.get_alive_players()
-        # Sécurité : vérifier que le rôle est bien assigné
         role_name = self.human_player.role.name if self.human_player.role else "N/A" 
         
         button_y = 50 
@@ -721,6 +723,31 @@ class LoupGarouGame(arcade.Window):
             self.action_buttons.append(MenuButton(x_start, button_y, 100, button_height, "PASSER", "PASSER"))
             
             self.log_messages.append(f"-> {targets_msg}")
+            return
+            
+        elif role_name == "Salvateur":
+            targets_msg = "Choisis qui protéger (Salvateur) :"
+            
+            # Exclusion : ne peut pas se protéger lui-même ni la cible précédente
+            last_target = self.human_player.last_protected_target
+            
+            # Inclure tous les vivants SAUF soi-même et la cible précédente
+            protect_targets = [p for p in alive if p.name != self.human_player.name and p.name != last_target]
+            
+            start_x = self.width / 2 - (len(protect_targets) * (button_width + 10) / 2) + 50
+            
+            for i, target in enumerate(protect_targets):
+                x = start_x + (i * (button_width + 10))
+                btn = MenuButton(
+                    x, button_y, button_width, button_height, 
+                    f"PROTÉGER {target.name}", 
+                    f"PROTÉGER:{target.name}" 
+                )
+                self.action_buttons.append(btn)
+            
+            if last_target:
+                self.log_messages.append(f"⚠️ **Attention :** Impossible de protéger {last_target} deux nuits de suite.")
+            self.log_messages.append(f"-> {role_name}: {targets_msg}")
             return
             
         else:
@@ -769,6 +796,18 @@ class LoupGarouGame(arcade.Window):
             self.current_state = GameState.NIGHT_IA_ACTION
             return
             
+        elif self.human_player.role == Role.SALVATEUR and ":" in clicked_action_data:
+            action_type, target_name = clicked_action_data.split(":", 1)
+            target = self.game_manager.get_player_by_name(target_name)
+            
+            if action_type == "PROTÉGER" and target:
+                # Stocker la cible pour que _night_phase l'utilise
+                self.game_manager.night_protected_target = target_name
+                self.human_player.last_protected_target = target_name
+                self.log_messages.append(f"🛡️ Le Salvateur protège **{target.name}** cette nuit.")
+                self.current_state = GameState.NIGHT_IA_ACTION
+                return
+        
         else:
              self.log_messages.append("Action invalide ou non supportée.")
              self.current_state = GameState.NIGHT_IA_ACTION
@@ -917,8 +956,10 @@ class LoupGarouGame(arcade.Window):
             )
         
         if self.current_state == GameState.NIGHT_HUMAN_ACTION:
+             # Afficher l'action requise (Salvateur ou autre)
+             action_text = f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})"
              arcade.draw_text(
-                f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})",
+                action_text,
                 RIGHT_PANEL_START_X + 20, self.height - 200, arcade.color.ORANGE, 16
             )
         elif self.current_state == GameState.CUPID_ACTION:
@@ -941,10 +982,10 @@ if __name__ == "__main__":
     # S'assure que les dossiers existent pour éviter des erreurs
     if not os.path.exists("context"):
         os.makedirs("context")
-        for i in range(1, 10):
-            if not os.path.exists(f"context/perso_placeholder_{i}.txt"):
-                with open(f"context/perso_placeholder_{i}.txt", "w", encoding="utf-8") as f:
-                    f.write(f"Tu es l'IA {i}. Ton rôle est d'être un joueur de Loup Garou. Réponds de manière concise.")
+        # Ces fichiers de contexte ne seront créés que s'ils n'existent pas déjà
+        # et seront remplacés par les fichiers générés par game_core._create_player_instance
+        # s'il y a un décalage de noms.
+        pass
     
     if not os.path.exists("images"):
         os.makedirs("images")
