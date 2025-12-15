@@ -46,12 +46,6 @@ class ChatAgent(Player):
         # L'appel à super().__init__ initialise déjà tous les attributs de Player
         super().__init__(name, is_human)
         
-        # Les lignes suivantes ne sont plus strictement nécessaires car elles sont
-        # initialisées dans Player, mais elles servent de rappel de sécurité.
-        # self.last_protected_target = None
-        # self.is_ancient_protected = False
-        
-       
         if "GROQ_KEY" not in os.environ:
              raise EnvironmentError("GROQ_KEY non trouvée. Assurez-vous d'avoir un fichier .env.")
              
@@ -223,6 +217,14 @@ class ChatAgent(Player):
              if msg['role'] == 'system' and "Loup" in msg['content'] and "vu" in msg['content']
          ), None)
          
+         # NOUVEAU : Extrait et résume les 10 dernières interactions du débat 
+         recent_debate = [
+             msg['content'] for msg in self.history[-10:] 
+             if msg['role'] == 'user' and not msg['content'].startswith("TON RÔLE") and not msg['content'].startswith("Décision interne")
+         ]
+         debate_summary = "\n- ".join(recent_debate)
+         
+         
          if is_voyante and found_wolf_info:
              
              instruction = (
@@ -252,7 +254,11 @@ class ChatAgent(Player):
              "Si tu es Loup-Garou, rends ton mensonge subtil et complexe, quitte à faire une FAUSSE ACCUSATION très forte. Ne réponds qu'avec le message lui-même."
          )
  
-         prompt = instruction + general_instruction
+         # Intégration du résumé du débat dans le prompt
+         prompt = (
+             f"**RÉSUMÉ DU DÉBAT RÉCENT (à considérer en priorité):**\n- {debate_summary}\n\n"
+             f"{instruction} {general_instruction}"
+         )
          
          debate_message = self.ask_llm(user_interaction=prompt)
          

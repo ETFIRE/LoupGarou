@@ -49,6 +49,11 @@ IA_NAMES_POOL = [
     "La Mystérieuse",
     "L'Interrogateur", 
     "L'Ami",
+    "Faucheuse",
+    "YesGirl",
+    "Personne",
+    "Félix le chat",
+    "Indominous",
 ]
 
 
@@ -85,22 +90,23 @@ class GameManager:
     
     DEBATE_TIME_LIMIT = 20
     
-    def __init__(self, human_player_name="Humain_Lucie"):
+    def __init__(self, human_player_name="Lucie", num_players_total=11):
         
         self.day = 0
         self.players = [] 
+        self.num_players_total = num_players_total
         
-        # --- MISE À JOUR : Ajout du SALVATEUR et ajustement des Villageois ---
-        roles_to_use = [
+        # Rôles fixes/spéciaux requis pour la partie
+        self.base_roles = [
             Role.LOUP, Role.LOUP, Role.LOUP,
             Role.VOYANTE, Role.SORCIERE, Role.CHASSEUR, 
             Role.CUPIDON, 
             Role.MAIRE, 
-            Role.SALVATEUR, # NOUVEAU RÔLE
-            Role.ANCIEN, # NOUVEAU RÔLE
-            Role.VILLAGEOIS,
+            Role.SALVATEUR, 
+            Role.ANCIEN,
         ]
-        self.available_roles = [r.value for r in roles_to_use] 
+        
+        self.available_roles = self._adjust_roles() 
         
         self.human_player = None 
         
@@ -143,9 +149,29 @@ class GameManager:
             return ChatAgent(name, personality_context_path=context_path) 
 
 
+    def _adjust_roles(self):
+        """Ajuste la liste finale des rôles en ajoutant/retirant des Villageois."""
+        
+        roles_list = list(self.base_roles)
+        num_base_roles = len(roles_list)
+        
+        if num_base_roles > self.num_players_total:
+            raise ValueError(
+                f"Nombre de joueurs trop faible ({self.num_players_total}). "
+                f"Minimum requis: {num_base_roles} pour les rôles spéciaux."
+            )
+            
+        required_villagers = self.num_players_total - num_base_roles
+        
+        for _ in range(required_villagers):
+            roles_list.append(Role.VILLAGEOIS)
+            
+        # On retourne les valeurs brutes de l'Enum pour la compatibilité avec le reste du code
+        return [r.value for r in roles_list] 
+        
     def _setup_players(self, human_player_name):
         """Initialise la liste des joueurs (IA et Humain)."""
-        num_ia = len(self.available_roles) - 1
+        num_ia = self.num_players_total - 1
         
         random.shuffle(IA_NAMES_POOL)
         ia_names = IA_NAMES_POOL[:num_ia]
@@ -155,7 +181,12 @@ class GameManager:
         
         # 2. Créer les joueurs IA (en utilisant ChatAgent)
         for name in ia_names:
+            if len(self.players) >= self.num_players_total:
+                 break 
             self.players.append(self._create_player_instance(name, None, is_human=False))
+
+        if len(self.players) != self.num_players_total:
+             raise ValueError(f"Erreur interne : Le nombre de joueurs créés ({len(self.players)}) ne correspond pas au total attendu ({self.num_players_total}).")
 
     def _distribute_roles(self):
         """Distribue aléatoirement les rôles aux joueurs et informe les Loups."""
@@ -325,21 +356,12 @@ class GameManager:
         
         alive = self.get_alive_players()
         
-        self.day += 1 
+        # self.day a été incrémenté dans LoupGarouGame.on_update / _start_night_phase
         
         night_messages = []
         
-        # 1. NUIT BLANCHE (aucune mort prévue la première nuit après l'action Cupidon)
+        # 1. NUIT BLANCHE (aucune mort ou action spéciale la Nuit 1)
         if self.day == 1:
-            for voyante in [p for p in alive if p.role == Role.VOYANTE and not p.is_human]:
-                target_name = voyante.decide_night_action(alive)
-                target = self.get_player_by_name(target_name)
-                if target:
-                    voyante.history.append({
-                        "role": "system", 
-                        "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value}). Utilise cette info dans le débat."
-                    })
-            
             night_messages.append("🌙 Première nuit passée. Le village se réveille sans drame !")
             self._recalculate_wolf_count()
             return "\n".join(night_messages)
@@ -403,16 +425,19 @@ class GameManager:
                 # 4. Logique SORCIERE (POTION) - Priorité 40 (Après la protection)
                 sorciere = self.get_player_by_role(Role.SORCIERE)
                 
+                # Si Sorcière IA (ou Humaine, mais Humaine agit dans l'état NIGHT_HUMAN_ACTION et son choix est stocké)
                 if sorciere and sorciere.is_alive:
                     
-                    if sorciere.has_life_potion:
-                        
-                        if not sorciere.is_human:
-                            if kill_target.role.camp != Camp.LOUP and random.random() < 0.5:
-                                is_saved_by_witch = True
-                                sorciere.has_life_potion = False 
-                                night_messages.append(f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière !")
-                
+                    # Logique Sorcière IA : Utilise la potion de vie si la cible n'est pas un loup et avec 50% de chance
+                    if sorciere.has_life_potion and not sorciere.is_human: 
+                        if kill_target.role.camp != Camp.LOUP and random.random() < 0.5:
+                            is_saved_by_witch = True
+                            sorciere.has_life_potion = False 
+                            night_messages.append(f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière (IA) !")
+                    
+                    # On suppose que si la Sorcière humaine a choisi 'SAUVER', cela serait intégré ici
+                    # (pour l'instant, l'implémentation est simplifiée et l'action humaine n'a pas d'effet direct sur is_saved_by_witch ici)
+                    
                 # Exécution de l'élimination (sauf si sauvé par la Sorcière)
                 if kill_target and not is_saved_by_witch:
                     message_mort = self._kill_player(kill_target.name, reason="tué par les Loups")
