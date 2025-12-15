@@ -85,7 +85,7 @@ class GameManager:
     
     DEBATE_TIME_LIMIT = 20
     
-    def __init__(self, human_player_name="Humain_Lucie"):
+    def __init__(self, human_player_name="Lucie"): # Mis à jour : Nom par défaut plus simple
         
         self.day = 0
         self.players = [] 

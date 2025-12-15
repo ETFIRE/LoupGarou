@@ -160,7 +160,7 @@ class ChatInput:
 
 class LoupGarouGame(arcade.Window):
     
-    def __init__(self, width, height, title, human_name="Humain_Lucie"):
+    def __init__(self, width, height, title, human_name="Lucie"): # Nom est maintenant passé et a une valeur par défaut
         
         # 1. INITIALISATION EN MODE REDIMENSIONNABLE ET PLEIN ÉCRAN
         super().__init__(width, height, title, resizable=True)
@@ -353,7 +353,7 @@ class LoupGarouGame(arcade.Window):
         # Le Salvateur (PROTECT) a une action de nuit
         active_night_roles = [NightAction.INVESTIGATE, NightAction.POTION, NightAction.PROTECT] 
         
-        # Modification : L'action de nuit humaine n'est déclenchée qu'à partir du Jour 2 (Nuit 2)
+        # Modification : L'action de nuit humaine (Sorcière, Voyante, Salvateur) n'est déclenchée qu'à partir du Jour 2 (Nuit 2)
         if (self.human_player.is_alive and 
             self.human_player.role.night_action in active_night_roles and
             self.game_manager.day > 1):
@@ -974,7 +974,15 @@ class LoupGarouGame(arcade.Window):
 
 def main():
     """Fonction principale pour lancer l'application Arcade."""
-    game = LoupGarouGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+    
+    # PERMET AU JOUEUR DE CHOISIR SON NOM
+    try:
+        input_name = input("Entrez votre nom de joueur (laissez vide pour 'Lucie') : ")
+        human_name = input_name.strip() or "Lucie"
+    except EOFError:
+        human_name = "Lucie"
+        
+    game = LoupGarouGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE, human_name=human_name)
     arcade.run()
 
 
