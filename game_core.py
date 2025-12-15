@@ -49,6 +49,11 @@ IA_NAMES_POOL = [
     "La Mystérieuse",
     "L'Interrogateur", 
     "L'Ami",
+    "Faucheuse",
+    "YesGirl",
+    "Personne",
+    "Félix le chat",
+    "Indominous",
 ]
 
 
@@ -85,22 +90,23 @@ class GameManager:
     
     DEBATE_TIME_LIMIT = 20
     
-    def __init__(self, human_player_name="Lucie"): # Mis à jour : Nom par défaut plus simple
+    def __init__(self, human_player_name="Lucie", num_players_total=11):
         
         self.day = 0
         self.players = [] 
+        self.num_players_total = num_players_total
         
-        # --- MISE À JOUR : Ajout du SALVATEUR et ajustement des Villageois ---
-        roles_to_use = [
+        # Rôles fixes/spéciaux requis pour la partie
+        self.base_roles = [
             Role.LOUP, Role.LOUP, Role.LOUP,
             Role.VOYANTE, Role.SORCIERE, Role.CHASSEUR, 
             Role.CUPIDON, 
             Role.MAIRE, 
-            Role.SALVATEUR, # NOUVEAU RÔLE
-            Role.ANCIEN, # NOUVEAU RÔLE
-            Role.VILLAGEOIS,
+            Role.SALVATEUR, 
+            Role.ANCIEN,
         ]
-        self.available_roles = [r.value for r in roles_to_use] 
+        
+        self.available_roles = self._adjust_roles() 
         
         self.human_player = None 
         
@@ -143,9 +149,29 @@ class GameManager:
             return ChatAgent(name, personality_context_path=context_path) 
 
 
+    def _adjust_roles(self):
+        """Ajuste la liste finale des rôles en ajoutant/retirant des Villageois."""
+        
+        roles_list = list(self.base_roles)
+        num_base_roles = len(roles_list)
+        
+        if num_base_roles > self.num_players_total:
+            raise ValueError(
+                f"Nombre de joueurs trop faible ({self.num_players_total}). "
+                f"Minimum requis: {num_base_roles} pour les rôles spéciaux."
+            )
+            
+        required_villagers = self.num_players_total - num_base_roles
+        
+        for _ in range(required_villagers):
+            roles_list.append(Role.VILLAGEOIS)
+            
+        # On retourne les valeurs brutes de l'Enum pour la compatibilité avec le reste du code
+        return [r.value for r in roles_list] 
+        
     def _setup_players(self, human_player_name):
         """Initialise la liste des joueurs (IA et Humain)."""
-        num_ia = len(self.available_roles) - 1
+        num_ia = self.num_players_total - 1
         
         random.shuffle(IA_NAMES_POOL)
         ia_names = IA_NAMES_POOL[:num_ia]
@@ -155,7 +181,12 @@ class GameManager:
         
         # 2. Créer les joueurs IA (en utilisant ChatAgent)
         for name in ia_names:
+            if len(self.players) >= self.num_players_total:
+                 break 
             self.players.append(self._create_player_instance(name, None, is_human=False))
+
+        if len(self.players) != self.num_players_total:
+             raise ValueError(f"Erreur interne : Le nombre de joueurs créés ({len(self.players)}) ne correspond pas au total attendu ({self.num_players_total}).")
 
     def _distribute_roles(self):
         """Distribue aléatoirement les rôles aux joueurs et informe les Loups."""

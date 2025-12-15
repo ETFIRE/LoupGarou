@@ -175,7 +175,7 @@ class ChatInput:
 
 class LoupGarouGame(arcade.Window):
     
-    def __init__(self, width, height, title, human_name="Lucie"):
+    def __init__(self, width, height, title, human_name="Lucie", num_players_total=11):
         
         # 1. INITIALISATION EN MODE REDIMENSIONNABLE ET PLEIN ÉCRAN
         super().__init__(width, height, title, resizable=True)
@@ -214,7 +214,7 @@ class LoupGarouGame(arcade.Window):
         arcade.set_background_color(arcade.color.DARK_BLUE_GRAY)
 
         # 4. Initialisation du Moteur de Jeu
-        self.game_manager = GameManager(human_player_name=human_name)
+        self.game_manager = GameManager(human_player_name=human_name, num_players_total=num_players_total)
         self.human_player = self.game_manager.human_player
         
         # 5. Variables d'Affichage et Log
@@ -224,9 +224,9 @@ class LoupGarouGame(arcade.Window):
         self.action_buttons = []
         self.key_is_caps = False
         
-        # --- NOUVEAU: Initialisation par sécurité ---
+        # --- Initialisation des boutons par sécurité ---
         self.stt_button = None 
-        self.start_button = None # Initialisation de start_button
+        self.start_button = None 
         # --------------------------------------------
         
         # --- Variables pour l'action Cupidon ---
@@ -240,7 +240,7 @@ class LoupGarouGame(arcade.Window):
         self.current_message_full = ""
         self.current_message_display = ""
         self.typing_speed_counter = 0 
-        self.typing_delay = 2          
+        self.typing_delay = 2          # Vitesse d'écriture rapide
         self.messages_generated = 0           
         self.max_messages_per_debate = 10     
         self.message_is_complete = False 
@@ -334,7 +334,13 @@ class LoupGarouGame(arcade.Window):
         random.shuffle(available_images)
         
         SPRITE_SCALE = 0.1
-        CIRCLE_RADIUS = min(self.width, self.height) * 0.35
+        # Calculer le rayon du cercle en fonction du nombre de joueurs
+        # Plus il y a de joueurs, plus la distance doit être grande, mais limitée par la taille de l'écran
+        max_dim = min(self.width, self.height)
+        if num_players <= 12:
+            CIRCLE_RADIUS = max_dim * 0.35
+        else:
+            CIRCLE_RADIUS = max_dim * 0.40 # Augmenter légèrement pour plus de joueurs
         
         for i, player in enumerate(self.game_manager.players):
             angle = i * angle_step
@@ -729,7 +735,6 @@ class LoupGarouGame(arcade.Window):
 
 
     # --- MÉTHODE DE DESSIN DU CHAT LOCALISÉ ---
-    # CORRECTION : La méthode draw_localized_chat_bubble doit être correctement définie dans la classe.
     def draw_localized_chat_bubble(self):
         """Dessine la bulle de chat/frappe sous le sprite de l'orateur actuel."""
         
@@ -1379,82 +1384,12 @@ class LoupGarouGame(arcade.Window):
         self.log_messages.append(f"-> {self.human_player.name}, choisis ta victime (CLIC) :")
 
 
-    # --- MÉTHODES D'AFFICHAGE ---
-    
-    def draw_log(self):
-        """Dessine le Journal de Bord (Historique Permanent) à GAUCHE."""
-        LOG_X_START = 10
-        LOG_WIDTH = self.width // 5
-        LOG_HEIGHT = self.height - 40 
-        
-        arcade.draw_lbwh_rectangle_filled(
-            LOG_X_START, 
-            10,
-            LOG_WIDTH, 
-            LOG_HEIGHT, 
-            (20, 20, 20, 180) 
-        )
-        
-        x_pos = LOG_X_START + 10
-        y_pos = self.height - 30 
-        line_spacing = 85 
-        font_size = 14 
-        
-        arcade.draw_text("JOURNAL DE BORD:", x_pos, y_pos, arcade.color.ORANGE_RED, 14)
-        y_pos -= 30 
-        
-        for msg in reversed(self.log_messages):
-            if y_pos < 50: 
-                break
-            
-            arcade.draw_text(
-                msg, 
-                x_pos, 
-                y_pos, 
-                arcade.color.LIGHT_GRAY, 
-                font_size, 
-                width=LOG_WIDTH - 30,
-                multiline=True
-            )
-            y_pos -= line_spacing 
-            
-    def draw_status(self):
-        """Dessine les compteurs (Loups, Timer) à DROITE, en haut."""
-        
-        PANEL_WIDTH = self.width // 3
-        RIGHT_PANEL_START_X = self.width - PANEL_WIDTH
-        
-        arcade.draw_text(
-            f"Loups Vivants : {self.game_manager.wolves_alive}",
-            RIGHT_PANEL_START_X + 20, self.height - 30, arcade.color.WHITE, 16
-        )
-        
-        if self.current_state in [GameState.DEBATE, GameState.VOTING, GameState.HUMAN_ACTION]:
-             arcade.draw_text(
-                f"Temps Restant : {int(self.debate_timer)}s",
-                RIGHT_PANEL_START_X + 20, self.height - 60, arcade.color.YELLOW, 14
-            )
-        
-        if self.current_state == GameState.NIGHT_HUMAN_ACTION:
-             # Afficher l'action requise (Salvateur ou autre)
-             action_text = f"ACTION NOCTURNE REQUISE ({self.human_player.role.name})"
-             arcade.draw_text(
-                action_text,
-                RIGHT_PANEL_START_X + 20, self.height - 200, arcade.color.ORANGE, 16
-            )
-        elif self.current_state == GameState.CUPID_ACTION:
-             arcade.draw_text(
-                f"PHASE CUPIDON (Sélectionnez 2)",
-                RIGHT_PANEL_START_X + 20, self.height - 200, arcade.color.PINK, 16
-            )
-
-
-    # --- Lancement du Jeu ---
+# --- Lancement du Jeu ---
 
 def main():
     """Fonction principale pour lancer l'application Arcade."""
     
-    # PERMET AU JOUEUR DE CHOISIR SON NOM
+    # 1. PERMETTRE AU JOUEUR DE CHOISIR SON NOM
     try:
         # Note: L'input console ne s'affiche pas dans l'environnement graphique, 
         # mais fonctionne si le script est lancé depuis un terminal.
@@ -1463,7 +1398,24 @@ def main():
     except EOFError:
         human_name = "Lucie"
         
-    game = LoupGarouGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE, human_name=human_name)
+    # 2. PERMETTRE AU JOUEUR DE CHOISIR LE NOMBRE TOTAL DE JOUEURS
+    while True:
+        try:
+            num_input = input("Entrez le nombre TOTAL de joueurs (Min. 10, Max. 15) : ")
+            num_players = int(num_input.strip())
+            
+            # Le minimum est 10 car il y a 10 rôles spéciaux/fixes (3 Loups + 7 Villageois spé)
+            if num_players < 10 or num_players > 15:
+                print("Le nombre doit être compris entre 10 et 15.")
+                continue
+            break
+        except ValueError:
+            print("Veuillez entrer un nombre valide.")
+            
+    # 3. PASSER LE NOM ET LE NOMBRE À LA CLASSE DE JEU
+    game = LoupGarouGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE, 
+                          human_name=human_name, 
+                          num_players_total=num_players)
     arcade.run()
 
 
