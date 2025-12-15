@@ -325,21 +325,12 @@ class GameManager:
         
         alive = self.get_alive_players()
         
-        self.day += 1 
+        # self.day a été incrémenté dans LoupGarouGame.on_update / _start_night_phase
         
         night_messages = []
         
-        # 1. NUIT BLANCHE (aucune mort prévue la première nuit après l'action Cupidon)
+        # 1. NUIT BLANCHE (aucune mort ou action spéciale la Nuit 1)
         if self.day == 1:
-            for voyante in [p for p in alive if p.role == Role.VOYANTE and not p.is_human]:
-                target_name = voyante.decide_night_action(alive)
-                target = self.get_player_by_name(target_name)
-                if target:
-                    voyante.history.append({
-                        "role": "system", 
-                        "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value}). Utilise cette info dans le débat."
-                    })
-            
             night_messages.append("🌙 Première nuit passée. Le village se réveille sans drame !")
             self._recalculate_wolf_count()
             return "\n".join(night_messages)
@@ -403,16 +394,19 @@ class GameManager:
                 # 4. Logique SORCIERE (POTION) - Priorité 40 (Après la protection)
                 sorciere = self.get_player_by_role(Role.SORCIERE)
                 
+                # Si Sorcière IA (ou Humaine, mais Humaine agit dans l'état NIGHT_HUMAN_ACTION et son choix est stocké)
                 if sorciere and sorciere.is_alive:
                     
-                    if sorciere.has_life_potion:
-                        
-                        if not sorciere.is_human:
-                            if kill_target.role.camp != Camp.LOUP and random.random() < 0.5:
-                                is_saved_by_witch = True
-                                sorciere.has_life_potion = False 
-                                night_messages.append(f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière !")
-                
+                    # Logique Sorcière IA : Utilise la potion de vie si la cible n'est pas un loup et avec 50% de chance
+                    if sorciere.has_life_potion and not sorciere.is_human: 
+                        if kill_target.role.camp != Camp.LOUP and random.random() < 0.5:
+                            is_saved_by_witch = True
+                            sorciere.has_life_potion = False 
+                            night_messages.append(f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière (IA) !")
+                    
+                    # On suppose que si la Sorcière humaine a choisi 'SAUVER', cela serait intégré ici
+                    # (pour l'instant, l'implémentation est simplifiée et l'action humaine n'a pas d'effet direct sur is_saved_by_witch ici)
+                    
                 # Exécution de l'élimination (sauf si sauvé par la Sorcière)
                 if kill_target and not is_saved_by_witch:
                     message_mort = self._kill_player(kill_target.name, reason="tué par les Loups")

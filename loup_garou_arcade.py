@@ -353,7 +353,11 @@ class LoupGarouGame(arcade.Window):
         # Le Salvateur (PROTECT) a une action de nuit
         active_night_roles = [NightAction.INVESTIGATE, NightAction.POTION, NightAction.PROTECT] 
         
-        if self.human_player.is_alive and self.human_player.role.night_action in active_night_roles:
+        # Modification : L'action de nuit humaine n'est déclenchée qu'à partir du Jour 2 (Nuit 2)
+        if (self.human_player.is_alive and 
+            self.human_player.role.night_action in active_night_roles and
+            self.game_manager.day > 1):
+            
             self.current_state = GameState.NIGHT_HUMAN_ACTION
             self.log_messages.append(f"\nNUIT {self.game_manager.day}: Exécute ton action de {self.human_player.role.name}.")
         else:
@@ -672,10 +676,7 @@ class LoupGarouGame(arcade.Window):
                  self.game_manager.day += 1
                  self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.") 
                  # La phase Cupidon est ignorée après la première nuit (day > 1)
-                 if self.human_player.is_alive and self.human_player.role.night_action in [NightAction.INVESTIGATE, NightAction.POTION, NightAction.PROTECT]:
-                     self.current_state = GameState.NIGHT_HUMAN_ACTION
-                 else:
-                     self.current_state = GameState.NIGHT_IA_ACTION
+                 self._start_night_phase()
 
         
     # --- LOGIQUE D'ACTION HUMAINE DE NUIT ---
