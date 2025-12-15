@@ -240,7 +240,7 @@ class LoupGarouGame(arcade.Window):
         self.current_message_full = ""
         self.current_message_display = ""
         self.typing_speed_counter = 0 
-        self.typing_delay = 5          
+        self.typing_delay = 2          
         self.messages_generated = 0           
         self.max_messages_per_debate = 10     
         self.message_is_complete = False 
