@@ -180,6 +180,14 @@ class LoupGarouGame(arcade.Window):
         super().__init__(width, height, title, resizable=True)
         self.set_fullscreen(True)
 
+        self.sound_start_game = None
+        try:
+            # Assurez-vous que le fichier start.mp3 ou start.wav existe dans le dossier sounds
+            if os.path.exists("sounds/start.mp3"):
+                self.sound_start_game = arcade.load_sound("sounds/start.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son de démarrage : {e}")
+
         # --- NOUVEAU : GESTION DES SONS ---
         self.sound_wolf_kill = None
         try:
@@ -467,7 +475,9 @@ class LoupGarouGame(arcade.Window):
         
         if self.current_state == GameState.SETUP:
             # Vérification de sécurité
-            if self.start_button and self.start_button.check_click(x, y): 
+            if self.start_button and self.start_button.check_click(x, y):
+                if self.sound_start_game:
+                    arcade.play_sound(self.sound_start_game) 
                 cupidon = self.game_manager.get_player_by_role(Role.CUPIDON)
                 
                 # Vérifie si Cupidon humain doit agir (première nuit uniquement)
