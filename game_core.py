@@ -443,10 +443,19 @@ class GameManager:
                     message_mort = self._kill_player(kill_target.name, reason="tué par les Loups")
                     night_messages.append(message_mort)
                 elif kill_target and is_saved_by_witch:
-                    pass 
+                    pass
+
+            if kill_target and not is_saved_by_witch:
+                message_mort = self._kill_player(kill_target.name, reason="tué par les Loups")
+                night_messages.append(message_mort)
+                # On peut retourner un tuple (message, a_ete_tue_par_loup)
+                self.last_death_was_by_wolf = True
 
         self._recalculate_wolf_count()
         return "\n".join(night_messages) if night_messages else "Nuit passée, personne n'est mort."
+    
+    
+    
 
 
     # --- Phase de Jour (Vote) ---
@@ -480,10 +489,9 @@ class GameManager:
                      self.vote_counts[voted_name] += 1
 
     def _lynch_result(self, alive_players):
-        """Détermine la victime du lynchage et gère l'élimination."""
-        
         if not self.vote_counts:
-            return "Personne n'a voté. Le village est confus."
+            # Sécurité pour éviter le crash de max() sur un dictionnaire vide
+            return "Le village n'a pas réussi à se mettre d'accord. Personne n'est lynché."
 
         # --- LOGIQUE MAIRE (Double Vote) ---
         mayor_player = self.get_player_by_role(Role.MAIRE)
