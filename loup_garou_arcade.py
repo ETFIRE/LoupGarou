@@ -188,6 +188,13 @@ class LoupGarouGame(arcade.Window):
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
 
+        self.sound_guardian_power = None
+        try:
+            if os.path.exists("sounds/guardian_protect.mp3"):
+                self.sound_guardian_power = arcade.load_sound("sounds/guardian_protect.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son Salvateur : {e}")
+
         self.sound_cupid_power = None
         try:
             if os.path.exists("sounds/cupid_power.mp3"):
@@ -525,35 +532,42 @@ class LoupGarouGame(arcade.Window):
             self.log_messages.append(f"\nNUIT {self.game_manager.day}: Les IA agissent.")
 
     def on_mouse_press(self, x, y, button, modifiers):
-        """Gère le clic de la souris."""
+        """Gère le clic de la souris selon l'état du jeu."""
         
         if self.current_state == GameState.SETUP:
-            # Vérification de sécurité
+            # Vérification du bouton de démarrage
             if self.start_button and self.start_button.check_click(x, y):
                 if self.sound_start_game:
                     arcade.play_sound(self.sound_start_game) 
+                
                 cupidon = self.game_manager.get_player_by_role(Role.CUPIDON)
                 
-                # Vérifie si Cupidon humain doit agir (première nuit uniquement)
+                # Cas 1 : Cupidon est humain et doit encore agir
                 if cupidon and cupidon.is_human and not self.game_manager.is_cupid_phase_done:
                     self.current_state = GameState.CUPID_ACTION
                     self.log_messages.append("💘 Cupidon : Choisis DEUX joueurs à lier (clic sur leurs icônes).")
+                
+                # Cas 2 : Cupidon est une IA (ou absent)
                 else:
-                    # Déclenche l'action Cupidon IA (si Cupidon IA) et passe à la nuit
                     cupid_message = self.game_manager._handle_cupid_phase()
                     if cupid_message:
                         self.log_messages.append(cupid_message)
-                
-                if "lié" in cupid_message and self.sound_cupid_power:
-                    arcade.play_sound(self.sound_cupid_power)
+                        # Son si l'IA a lié des joueurs
+                        if "lié" in cupid_message and self.sound_cupid_power:
+                            arcade.play_sound(self.sound_cupid_power)
                     
-                    # Le jour 1 est passé, on lance la nuit 1
                     self.game_manager.day = 1 
                     self._start_night_phase()
                 return 
                 
         elif self.current_state == GameState.CUPID_ACTION:
+            # On stocke le nombre de cibles avant le clic pour détecter le lien final
+            old_targets_count = len(self.cupid_targets)
             self._handle_cupid_selection_click(x, y)
+            
+            # Déclenchement du son si le lien vient d'être créé par l'humain
+            if old_targets_count == 1 and len(self.cupid_targets) == 0 and self.sound_cupid_power:
+                arcade.play_sound(self.sound_cupid_power)
 
         elif self.current_state == GameState.HUMAN_ACTION:
             for btn in self.action_buttons:
@@ -561,29 +575,39 @@ class LoupGarouGame(arcade.Window):
                     voted_player_name = btn.action
                     self.log_messages.append(f"🗳️ {self.human_player.name} vote pour {voted_player_name}")
                     
-                    # Correction : On enregistre le vote SANS bloquer l'interface
                     self.game_manager.register_human_vote(voted_player_name)
-                    
-                    # On vide les boutons immédiatement pour éviter les doubles clics
                     self.action_buttons = [] 
-                    
-                    # On passe à l'état VOTING (qui sera traité par on_update)
                     self.current_state = GameState.VOTING
                     return
                     
         elif self.current_state == GameState.DEBATE and self.human_player.is_alive:
-            # Gérer le clic sur le bouton Envoyer (dans ChatInput.check_click)
             self.chat_input.check_click(x, y)
             
-            # NOUVEAU : Gérer le clic sur le bouton STT
             if self.stt_available and self.stt_button and self.stt_button.check_click(x, y):
                  self._handle_stt_toggle()
-                 return # Ne pas laisser le clic se propager au chat input
+                 return 
         
         elif self.current_state == GameState.NIGHT_HUMAN_ACTION:
-             self._handle_human_night_action_click(x, y)
+            for btn in self.action_buttons:
+                if btn.check_click(x, y):
+                    action_data = btn.action 
+            
+                    # --- GESTION DES SONS DE NUIT ---
+                    # 1. Le Salvateur
+                    if "PROTÉGER" in action_data and self.sound_guardian_power:
+                        arcade.play_sound(self.sound_guardian_power)
 
-    # --- Logique Cupidon UI ---
+                    # 2. La Voyante
+                    elif "ENQUÊTER" in action_data and self.sound_seer_power:
+                        arcade.play_sound(self.sound_seer_power)
+                    
+                    # 3. La Sorcière (Potions)
+                    elif (action_data == "TUER" or action_data == "SAUVER") and self.sound_witch_power:
+                        arcade.play_sound(self.sound_witch_power)
+            
+                    # Traitement logique du clic
+                    self._handle_human_night_action_click(x, y)
+                    return
 
     def _handle_cupid_selection_click(self, x, y):
         """Gère la sélection des amoureux par Cupidon humain."""
