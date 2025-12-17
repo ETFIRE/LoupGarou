@@ -105,6 +105,8 @@ class GameManager:
             Role.SALVATEUR, 
             Role.ANCIEN,
         ]
+        
+        self.ancient_shield_triggered = False
 
         self.hunter_just_shot = False
         
@@ -283,7 +285,9 @@ class GameManager:
         hunter_eliminated_target = None
 
         if target.role == Role.ANCIEN and target.is_ancient_protected and "lynché" not in reason:
+            self.ancient_shield_triggered = True
             target.is_ancient_protected = False
+            
             return f"🌟 **L'ANCIEN** a été attaqué, mais son totem de protection lui a sauvé la vie cette fois ! Il est désormais vulnérable."
         
         # S'il survit, on sort de la fonction sans le tuer ni activer les effets de mort.

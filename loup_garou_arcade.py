@@ -188,6 +188,13 @@ class LoupGarouGame(arcade.Window):
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
 
+        self.sound_ancient_power = None
+        try:
+            if os.path.exists("sounds/ancient_shield.mp3"):
+                self.sound_ancient_power = arcade.load_sound("sounds/ancient_shield.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son Ancien : {e}")
+
         self.sound_guardian_power = None
         try:
             if os.path.exists("sounds/guardian_protect.mp3"):
@@ -365,6 +372,12 @@ class LoupGarouGame(arcade.Window):
                 arcade.play_sound(self.sound_hunter_shot)
             # Important : Réinitialiser l'indicateur pour ne pas rejouer le son
             self.game_manager.hunter_just_shot = False
+
+        if self.game_manager.ancient_shield_triggered:
+            if self.sound_ancient_power:
+                arcade.play_sound(self.sound_ancient_power)
+            # Important : Réinitialiser pour la prochaine nuit
+            self.game_manager.ancient_shield_triggered = False
 
         # 4. Transition d'état vers le jour (Débat)
         self.night_processing = False
