@@ -105,6 +105,8 @@ class GameManager:
             Role.SALVATEUR, 
             Role.ANCIEN,
         ]
+
+        self.hunter_just_shot = False
         
         self.available_roles = self._adjust_roles() 
         
@@ -297,6 +299,7 @@ class GameManager:
             survivors = [p for p in self.get_alive_players() if p.name != target.name] 
             
             if survivors:
+                self.hunter_just_shot = True
                 hunter_eliminated_target = random.choice(survivors)
                 # Utilisation de _kill_player pour gérer la mort en chaîne
                 self._kill_player(hunter_eliminated_target.name, reason="emporté(e) par le Chasseur")

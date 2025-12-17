@@ -188,6 +188,13 @@ class LoupGarouGame(arcade.Window):
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
 
+        self.sound_hunter_shot = None
+        try:
+            if os.path.exists("sounds/hunter_shot.mp3"):
+                self.sound_hunter_shot = arcade.load_sound("sounds/hunter_shot.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son chasseur : {e}")
+
         self.sound_seer_power = None
         try:
             if os.path.exists("sounds/seer_power.mp3"):
@@ -321,22 +328,41 @@ class LoupGarouGame(arcade.Window):
         arcade.schedule(lambda dt: self._finalize_night(night_message), 0)
 
     def _finalize_night(self, message):
-        """Reçoit le résultat du thread et met à jour le jeu."""
+        """
+        Reçoit le résultat du thread de calcul de nuit et met à jour le jeu.
+        Gère les déclenchements sonores (Loups, Chasseur).
+        """
+        # On arrête la planification si on utilise arcade.schedule (sécurité)
         arcade.unschedule(self._finalize_night) 
-    
+
+        # 1. Ajout du rapport de nuit au journal
         self.log_messages.append(message)
-    
-        # --- NOUVEAU : LOGIQUE DU SON ---
-        # Si le message indique un meurtre par les loups, on joue le son
+
+        # 2. GESTION DES SONS DE MORT (LOUPS)
+        # Si le message indique qu'un joueur a été tué par les loups
         if "tué par les Loups" in message:
-            self.play_death_sound()
-    
-        # Transition d'état vers le jour
+            if self.sound_wolf_kill:
+                arcade.play_sound(self.sound_wolf_kill)
+
+        # 3. GESTION DU SON DU CHASSEUR
+        # On vérifie l'indicateur dans le GameManager (activé dans _kill_player)
+        if self.game_manager.hunter_just_shot:
+            if self.sound_hunter_shot:
+                arcade.play_sound(self.sound_hunter_shot)
+            # Important : Réinitialiser l'indicateur pour ne pas rejouer le son
+            self.game_manager.hunter_just_shot = False
+
+        # 4. Transition d'état vers le jour (Débat)
         self.night_processing = False
         self.current_state = GameState.DEBATE
+        
+        # Réinitialisation des paramètres de débat
         self.debate_timer = 60
         self.messages_generated = 0
-        self.log_messages.append(f"\n☀️ Jour {self.game_manager.day} : Le débat commence !")
+        self.current_speaker = None
+        self.message_is_complete = False
+        
+        self.log_messages.append(f"\n☀️ Jour {self.game_manager.day} : Le soleil se lève sur le village.")
 
     # --- Méthodes de gestion de l'État ---
 
