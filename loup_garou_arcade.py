@@ -188,6 +188,67 @@ class LoupGarouGame(arcade.Window):
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
 
+        self.bg_music = None
+        self.music_player = None
+        try:
+            if os.path.exists("sounds/ambient_night.mp3"):
+                # Utilisation de streaming=True pour les fichiers longs (musique)
+                self.bg_music = arcade.load_sound("sounds/ambient_night.mp3", streaming=True)
+                # Correction de l'argument : loop au lieu de looping
+                self.music_player = arcade.play_sound(self.bg_music, volume=0.15, loop=True)
+                print("Musique d'ambiance lancée avec succès.")
+        except Exception as e:
+            print(f"Erreur chargement musique d'ambiance : {e}")
+
+        self.sound_ancient_power = None
+        try:
+            if os.path.exists("sounds/ancient_shield.mp3"):
+                self.sound_ancient_power = arcade.load_sound("sounds/ancient_shield.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son Ancien : {e}")
+
+        self.sound_guardian_power = None
+        try:
+            if os.path.exists("sounds/guardian_protect.mp3"):
+                self.sound_guardian_power = arcade.load_sound("sounds/guardian_protect.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son Salvateur : {e}")
+
+        self.sound_cupid_power = None
+        try:
+            if os.path.exists("sounds/cupid_power.mp3"):
+                self.sound_cupid_power = arcade.load_sound("sounds/cupid_power.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son Cupidon : {e}")
+
+        self.sound_hunter_shot = None
+        try:
+            if os.path.exists("sounds/hunter_shot.mp3"):
+                self.sound_hunter_shot = arcade.load_sound("sounds/hunter_shot.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son chasseur : {e}")
+
+        self.sound_seer_power = None
+        try:
+            if os.path.exists("sounds/seer_power.mp3"):
+                self.sound_seer_power = arcade.load_sound("sounds/seer_power.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son voyante : {e}")
+
+        self.sound_villager_death = None
+        try:
+            if os.path.exists("sounds/villager_death.mp3"):
+                self.sound_villager_death = arcade.load_sound("sounds/villager_death.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son villageois : {e}")
+
+        self.sound_witch_power = None
+        try:
+            if os.path.exists("sounds/witch_power.mp3"):
+                self.sound_witch_power = arcade.load_sound("sounds/witch_power.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son sorcière : {e}")
+
         # --- NOUVEAU : GESTION DES SONS ---
         self.sound_wolf_kill = None
         try:
@@ -300,22 +361,47 @@ class LoupGarouGame(arcade.Window):
         arcade.schedule(lambda dt: self._finalize_night(night_message), 0)
 
     def _finalize_night(self, message):
-        """Reçoit le résultat du thread et met à jour le jeu."""
+        """
+        Reçoit le résultat du thread de calcul de nuit et met à jour le jeu.
+        Gère les déclenchements sonores (Loups, Chasseur).
+        """
+        # On arrête la planification si on utilise arcade.schedule (sécurité)
         arcade.unschedule(self._finalize_night) 
-    
+
+        # 1. Ajout du rapport de nuit au journal
         self.log_messages.append(message)
-    
-        # --- NOUVEAU : LOGIQUE DU SON ---
-        # Si le message indique un meurtre par les loups, on joue le son
+
+        # 2. GESTION DES SONS DE MORT (LOUPS)
+        # Si le message indique qu'un joueur a été tué par les loups
         if "tué par les Loups" in message:
-            self.play_death_sound()
-    
-        # Transition d'état vers le jour
+            if self.sound_wolf_kill:
+                arcade.play_sound(self.sound_wolf_kill)
+
+        # 3. GESTION DU SON DU CHASSEUR
+        # On vérifie l'indicateur dans le GameManager (activé dans _kill_player)
+        if self.game_manager.hunter_just_shot:
+            if self.sound_hunter_shot:
+                arcade.play_sound(self.sound_hunter_shot)
+            # Important : Réinitialiser l'indicateur pour ne pas rejouer le son
+            self.game_manager.hunter_just_shot = False
+
+        if self.game_manager.ancient_shield_triggered:
+            if self.sound_ancient_power:
+                arcade.play_sound(self.sound_ancient_power)
+            # Important : Réinitialiser pour la prochaine nuit
+            self.game_manager.ancient_shield_triggered = False
+
+        # 4. Transition d'état vers le jour (Débat)
         self.night_processing = False
         self.current_state = GameState.DEBATE
-        self.debate_timer = 60
+        
+        # Réinitialisation des paramètres de débat
+        self.debate_timer = 10
         self.messages_generated = 0
-        self.log_messages.append(f"\n☀️ Jour {self.game_manager.day} : Le débat commence !")
+        self.current_speaker = None
+        self.message_is_complete = False
+        
+        self.log_messages.append(f"\n☀️ Jour {self.game_manager.day} : Le soleil se lève sur le village.")
 
     # --- Méthodes de gestion de l'État ---
 
@@ -471,32 +557,42 @@ class LoupGarouGame(arcade.Window):
             self.log_messages.append(f"\nNUIT {self.game_manager.day}: Les IA agissent.")
 
     def on_mouse_press(self, x, y, button, modifiers):
-        """Gère le clic de la souris."""
+        """Gère le clic de la souris selon l'état du jeu."""
         
         if self.current_state == GameState.SETUP:
-            # Vérification de sécurité
+            # Vérification du bouton de démarrage
             if self.start_button and self.start_button.check_click(x, y):
                 if self.sound_start_game:
                     arcade.play_sound(self.sound_start_game) 
+                
                 cupidon = self.game_manager.get_player_by_role(Role.CUPIDON)
                 
-                # Vérifie si Cupidon humain doit agir (première nuit uniquement)
+                # Cas 1 : Cupidon est humain et doit encore agir
                 if cupidon and cupidon.is_human and not self.game_manager.is_cupid_phase_done:
                     self.current_state = GameState.CUPID_ACTION
                     self.log_messages.append("💘 Cupidon : Choisis DEUX joueurs à lier (clic sur leurs icônes).")
+                
+                # Cas 2 : Cupidon est une IA (ou absent)
                 else:
-                    # Déclenche l'action Cupidon IA (si Cupidon IA) et passe à la nuit
                     cupid_message = self.game_manager._handle_cupid_phase()
                     if cupid_message:
                         self.log_messages.append(cupid_message)
+                        # Son si l'IA a lié des joueurs
+                        if "lié" in cupid_message and self.sound_cupid_power:
+                            arcade.play_sound(self.sound_cupid_power)
                     
-                    # Le jour 1 est passé, on lance la nuit 1
                     self.game_manager.day = 1 
                     self._start_night_phase()
                 return 
                 
         elif self.current_state == GameState.CUPID_ACTION:
+            # On stocke le nombre de cibles avant le clic pour détecter le lien final
+            old_targets_count = len(self.cupid_targets)
             self._handle_cupid_selection_click(x, y)
+            
+            # Déclenchement du son si le lien vient d'être créé par l'humain
+            if old_targets_count == 1 and len(self.cupid_targets) == 0 and self.sound_cupid_power:
+                arcade.play_sound(self.sound_cupid_power)
 
         elif self.current_state == GameState.HUMAN_ACTION:
             for btn in self.action_buttons:
@@ -504,29 +600,39 @@ class LoupGarouGame(arcade.Window):
                     voted_player_name = btn.action
                     self.log_messages.append(f"🗳️ {self.human_player.name} vote pour {voted_player_name}")
                     
-                    # Correction : On enregistre le vote SANS bloquer l'interface
                     self.game_manager.register_human_vote(voted_player_name)
-                    
-                    # On vide les boutons immédiatement pour éviter les doubles clics
                     self.action_buttons = [] 
-                    
-                    # On passe à l'état VOTING (qui sera traité par on_update)
                     self.current_state = GameState.VOTING
                     return
                     
         elif self.current_state == GameState.DEBATE and self.human_player.is_alive:
-            # Gérer le clic sur le bouton Envoyer (dans ChatInput.check_click)
             self.chat_input.check_click(x, y)
             
-            # NOUVEAU : Gérer le clic sur le bouton STT
             if self.stt_available and self.stt_button and self.stt_button.check_click(x, y):
                  self._handle_stt_toggle()
-                 return # Ne pas laisser le clic se propager au chat input
+                 return 
         
         elif self.current_state == GameState.NIGHT_HUMAN_ACTION:
-             self._handle_human_night_action_click(x, y)
+            for btn in self.action_buttons:
+                if btn.check_click(x, y):
+                    action_data = btn.action 
+            
+                    # --- GESTION DES SONS DE NUIT ---
+                    # 1. Le Salvateur
+                    if "PROTÉGER" in action_data and self.sound_guardian_power:
+                        arcade.play_sound(self.sound_guardian_power)
 
-    # --- Logique Cupidon UI ---
+                    # 2. La Voyante
+                    elif "ENQUÊTER" in action_data and self.sound_seer_power:
+                        arcade.play_sound(self.sound_seer_power)
+                    
+                    # 3. La Sorcière (Potions)
+                    elif (action_data == "TUER" or action_data == "SAUVER") and self.sound_witch_power:
+                        arcade.play_sound(self.sound_witch_power)
+            
+                    # Traitement logique du clic
+                    self._handle_human_night_action_click(x, y)
+                    return
 
     def _handle_cupid_selection_click(self, x, y):
         """Gère la sélection des amoureux par Cupidon humain."""
@@ -550,6 +656,8 @@ class LoupGarouGame(arcade.Window):
                 self.log_messages.append(f"💘 Sélectionné: {clicked_player_name} (Total: {len(self.cupid_targets)}/2)")
 
             if len(self.cupid_targets) == 2:
+                if self.sound_cupid_power:
+                    arcade.play_sound(self.sound_cupid_power)
                 # Applique le choix et passe à la nuit
                 choice_str = f"{self.cupid_targets[0]},{self.cupid_targets[1]}"
                 cupid_message = self.game_manager._handle_cupid_phase(human_choice=choice_str)
@@ -845,8 +953,23 @@ class LoupGarouGame(arcade.Window):
             self._update_debate(delta_time) 
         
         elif self.current_state == GameState.VOTING:
-            lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players()) 
+            # On récupère le dictionnaire des votes avant qu'il ne soit vidé par _lynch_result
+            if self.game_manager.vote_counts:
+            # Trouver qui a reçu le plus de votes (identique à la logique interne du GameManager)
+                lynch_target_name = max(self.game_manager.vote_counts, key=self.game_manager.vote_counts.get)
+                target_player = self.game_manager.get_player_by_name(lynch_target_name)
+
+            # Exécuter le lynchage et obtenir le message
+            lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players())
             self.log_messages.append(lynch_message)
+
+            # Vérifier si la mort a eu lieu et si ce n'était pas un loup
+            if "mort(e)" in lynch_message and target_player:
+                # On vérifie le camp du rôle (Camp.VILLAGE)
+                if target_player.role.camp == Camp.VILLAGE:
+                    if self.sound_villager_death:
+                        arcade.play_sound(self.sound_villager_death)
+    
             self.current_state = GameState.RESULT
         
         elif self.current_state == GameState.RESULT:
@@ -957,6 +1080,8 @@ class LoupGarouGame(arcade.Window):
             target = next((p for p in self.game_manager.players if p.name == target_name), None)
             
             if action_type == "ENQUÊTER" and target:
+                if self.sound_seer_power:
+                    arcade.play_sound(self.sound_seer_power)
                 target_role = target.role.name
                 target_camp = target.role.camp.value
                 self.log_messages.append(f"🕵️‍♀️ Révélation : {target.name} est un(e) **{target_role}** ({target_camp}).")
@@ -969,10 +1094,14 @@ class LoupGarouGame(arcade.Window):
                 self.log_messages.append("Action de nuit passée.")
             
             elif clicked_action_data == "TUER" and self.human_player.has_kill_potion:
+                 if self.sound_witch_power:
+                    arcade.play_sound(self.sound_witch_power)
                  self.human_player.has_kill_potion = False
                  self.log_messages.append(f"🧪 Sorcière : Potion de mort utilisée. L'impact sera résolu.")
             
             elif clicked_action_data == "SAUVER" and self.human_player.has_life_potion:
+                 if self.sound_witch_power:
+                    arcade.play_sound(self.sound_witch_power)
                  self.human_player.has_life_potion = False
                  self.log_messages.append(f"💖 Sorcière : Potion de vie utilisée. L'impact sera résolu.")
             

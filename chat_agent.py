@@ -64,7 +64,7 @@ class ChatAgent(Player):
         system_instruction = (
             "Tu es un joueur de Loup Garou. Ton but est de manipuler la discussion. "
             "Sois toujours actif, jamais neutre. Accuse, défends-toi, ou retourne la situation avec force. "
-            "Rends tes interventions courtes, percutantes et conformes à ta personnalité unique. "
+            "Réponds avec une seule phrase courte (maximum 10-15 mots). Sois extrêmement concis et direct. "
             "Voici ta personnalité : \n" + personality_context
         )
         self.history = [{"role": "system", "content": system_instruction}]
@@ -140,7 +140,7 @@ class ChatAgent(Player):
              response = self.client.chat.completions.create(
                  messages=normalized_history,
                  model=model,
-                 max_tokens=50, 
+                 max_tokens=30, 
                  temperature=0.7 
              ).choices[0].message.content
              
@@ -250,7 +250,7 @@ class ChatAgent(Player):
          
          general_instruction = (
              f"Ton rôle est {self.role.name} ({self.role.camp.value}). Consulte ton historique (TON SEUL GUIDE). "
-             f"RÉPONDS AVEC UN MESSAGE TRES COURT, PERCUTANT ET DIRECT (MAXIMUM 20 MOTS). "
+             f"RÉPONDS AVEC UN MESSAGE TRES COURT, PERCUTANT ET DIRECT (MAXIMUM 10 MOTS). "
              "Si tu es Loup-Garou, rends ton mensonge subtil et complexe, quitte à faire une FAUSSE ACCUSATION très forte. Ne réponds qu'avec le message lui-même."
          )
  
