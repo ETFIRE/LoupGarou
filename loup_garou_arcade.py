@@ -188,6 +188,13 @@ class LoupGarouGame(arcade.Window):
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
 
+        self.sound_villager_death = None
+        try:
+            if os.path.exists("sounds/villager_death.mp3"):
+                self.sound_villager_death = arcade.load_sound("sounds/villager_death.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son villageois : {e}")
+
         self.sound_witch_power = None
         try:
             if os.path.exists("sounds/witch_power.mp3"):
@@ -852,8 +859,23 @@ class LoupGarouGame(arcade.Window):
             self._update_debate(delta_time) 
         
         elif self.current_state == GameState.VOTING:
-            lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players()) 
+            # On récupère le dictionnaire des votes avant qu'il ne soit vidé par _lynch_result
+            if self.game_manager.vote_counts:
+            # Trouver qui a reçu le plus de votes (identique à la logique interne du GameManager)
+                lynch_target_name = max(self.game_manager.vote_counts, key=self.game_manager.vote_counts.get)
+                target_player = self.game_manager.get_player_by_name(lynch_target_name)
+
+            # Exécuter le lynchage et obtenir le message
+            lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players())
             self.log_messages.append(lynch_message)
+
+            # Vérifier si la mort a eu lieu et si ce n'était pas un loup
+            if "mort(e)" in lynch_message and target_player:
+                # On vérifie le camp du rôle (Camp.VILLAGE)
+                if target_player.role.camp == Camp.VILLAGE:
+                    if self.sound_villager_death:
+                        arcade.play_sound(self.sound_villager_death)
+    
             self.current_state = GameState.RESULT
         
         elif self.current_state == GameState.RESULT:
