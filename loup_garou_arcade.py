@@ -188,6 +188,18 @@ class LoupGarouGame(arcade.Window):
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
 
+        self.bg_music = None
+        self.music_player = None
+        try:
+            if os.path.exists("sounds/ambient_night.mp3"):
+                # Utilisation de streaming=True pour les fichiers longs (musique)
+                self.bg_music = arcade.load_sound("sounds/ambient_night.mp3", streaming=True)
+                # Correction de l'argument : loop au lieu de looping
+                self.music_player = arcade.play_sound(self.bg_music, volume=0.15, loop=True)
+                print("Musique d'ambiance lancée avec succès.")
+        except Exception as e:
+            print(f"Erreur chargement musique d'ambiance : {e}")
+
         self.sound_ancient_power = None
         try:
             if os.path.exists("sounds/ancient_shield.mp3"):
@@ -384,7 +396,7 @@ class LoupGarouGame(arcade.Window):
         self.current_state = GameState.DEBATE
         
         # Réinitialisation des paramètres de débat
-        self.debate_timer = 60
+        self.debate_timer = 10
         self.messages_generated = 0
         self.current_speaker = None
         self.message_is_complete = False
