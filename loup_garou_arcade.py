@@ -188,6 +188,13 @@ class LoupGarouGame(arcade.Window):
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
 
+        self.sound_witch_power = None
+        try:
+            if os.path.exists("sounds/witch_power.mp3"):
+                self.sound_witch_power = arcade.load_sound("sounds/witch_power.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son sorcière : {e}")
+
         # --- NOUVEAU : GESTION DES SONS ---
         self.sound_wolf_kill = None
         try:
@@ -969,10 +976,14 @@ class LoupGarouGame(arcade.Window):
                 self.log_messages.append("Action de nuit passée.")
             
             elif clicked_action_data == "TUER" and self.human_player.has_kill_potion:
+                 if self.sound_witch_power:
+                    arcade.play_sound(self.sound_witch_power)
                  self.human_player.has_kill_potion = False
                  self.log_messages.append(f"🧪 Sorcière : Potion de mort utilisée. L'impact sera résolu.")
             
             elif clicked_action_data == "SAUVER" and self.human_player.has_life_potion:
+                 if self.sound_witch_power:
+                    arcade.play_sound(self.sound_witch_power)
                  self.human_player.has_life_potion = False
                  self.log_messages.append(f"💖 Sorcière : Potion de vie utilisée. L'impact sera résolu.")
             
