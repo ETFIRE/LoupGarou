@@ -188,6 +188,13 @@ class LoupGarouGame(arcade.Window):
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
 
+        self.sound_seer_power = None
+        try:
+            if os.path.exists("sounds/seer_power.mp3"):
+                self.sound_seer_power = arcade.load_sound("sounds/seer_power.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son voyante : {e}")
+
         self.sound_villager_death = None
         try:
             if os.path.exists("sounds/villager_death.mp3"):
@@ -986,6 +993,8 @@ class LoupGarouGame(arcade.Window):
             target = next((p for p in self.game_manager.players if p.name == target_name), None)
             
             if action_type == "ENQUÊTER" and target:
+                if self.sound_seer_power:
+                    arcade.play_sound(self.sound_seer_power)
                 target_role = target.role.name
                 target_camp = target.role.camp.value
                 self.log_messages.append(f"🕵️‍♀️ Révélation : {target.name} est un(e) **{target_role}** ({target_camp}).")
