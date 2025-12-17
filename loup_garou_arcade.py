@@ -188,6 +188,13 @@ class LoupGarouGame(arcade.Window):
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
 
+        self.sound_cupid_power = None
+        try:
+            if os.path.exists("sounds/cupid_power.mp3"):
+                self.sound_cupid_power = arcade.load_sound("sounds/cupid_power.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son Cupidon : {e}")
+
         self.sound_hunter_shot = None
         try:
             if os.path.exists("sounds/hunter_shot.mp3"):
@@ -536,6 +543,9 @@ class LoupGarouGame(arcade.Window):
                     cupid_message = self.game_manager._handle_cupid_phase()
                     if cupid_message:
                         self.log_messages.append(cupid_message)
+                
+                if "lié" in cupid_message and self.sound_cupid_power:
+                    arcade.play_sound(self.sound_cupid_power)
                     
                     # Le jour 1 est passé, on lance la nuit 1
                     self.game_manager.day = 1 
@@ -597,6 +607,8 @@ class LoupGarouGame(arcade.Window):
                 self.log_messages.append(f"💘 Sélectionné: {clicked_player_name} (Total: {len(self.cupid_targets)}/2)")
 
             if len(self.cupid_targets) == 2:
+                if self.sound_cupid_power:
+                    arcade.play_sound(self.sound_cupid_power)
                 # Applique le choix et passe à la nuit
                 choice_str = f"{self.cupid_targets[0]},{self.cupid_targets[1]}"
                 cupid_message = self.game_manager._handle_cupid_phase(human_choice=choice_str)
