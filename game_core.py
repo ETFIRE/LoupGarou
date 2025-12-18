@@ -61,10 +61,10 @@ IA_NAMES_POOL = [
 
 class Player:
     """Représente un joueur humain (ou la base pour ChatAgent)."""
-    def __init__(self, name, is_human=True):
+    def __init__(self, name, role, is_human=False):
         self.name = name
         self.is_human = is_human
-        self.role = None
+        self.role = role
         self.is_alive = True
         self.has_kill_potion = False
         self.has_life_potion = False
@@ -174,23 +174,58 @@ class GameManager:
         return [r.value for r in roles_list] 
         
     def _setup_players(self, human_player_name):
-        """Initialise la liste des joueurs (IA et Humain)."""
+        """Initialise la liste des joueurs (IA et Humain) avec attribution de rôles."""
         num_ia = self.num_players_total - 1
         
+        # 1. Préparer et mélanger les noms d'IA
         random.shuffle(IA_NAMES_POOL)
         ia_names = IA_NAMES_POOL[:num_ia]
         
-        # 1. Créer le joueur humain
-        self.players.append(Player(human_player_name, is_human=True))
+        # 2. Générer la liste des rôles pour toute la partie et la mélanger
+        # On suppose que vous avez une méthode _generate_roles qui renvoie une liste d'objets Role
+        roles_pool = self._generate_roles(self.num_players_total)
+        random.shuffle(roles_pool)
         
-        # 2. Créer les joueurs IA (en utilisant ChatAgent)
+        # 3. Créer le joueur humain avec le premier rôle de la liste
+        human_role = roles_pool.pop()
+        self.human_player = Player(human_player_name, role=human_role, is_human=True)
+        self.players.append(self.human_player)
+        
+        # 4. Création des IA
         for name in ia_names:
-            if len(self.players) >= self.num_players_total:
-                 break 
-            self.players.append(self._create_player_instance(name, None, is_human=False))
-
-        if len(self.players) != self.num_players_total:
-             raise ValueError(f"Erreur interne : Le nombre de joueurs créés ({len(self.players)}) ne correspond pas au total attendu ({self.num_players_total}).")
+            if not roles_pool:
+                break
+            ia_role = roles_pool.pop()
+            self.players.append(self._create_player_instance(name, ia_role, is_human=False))
+        
+    def _generate_roles(self, total_players):
+        """Génère une liste de rôles équilibrée pour la partie."""
+        roles = []
+        
+        # 1. Ajout des Loups (environ 1/4 ou 1/3 des joueurs)
+        num_wolves = 3 if total_players >= 10 else 2
+        for _ in range(num_wolves):
+            roles.append(Role.LOUP)
+            
+        # 2. Ajout des rôles spéciaux indispensables
+        mandatory_roles = [
+            Role.VOYANTE, 
+            Role.SORCIERE, 
+            Role.CHASSEUR, 
+            Role.CUPIDON, 
+            Role.SALVATEUR,
+            Role.ANCIEN
+        ]
+        
+        for r in mandatory_roles:
+            if len(roles) < total_players:
+                roles.append(r)
+                
+        # 3. Remplir le reste avec des Villageois simples si nécessaire
+        while len(roles) < total_players:
+            roles.append(Role.VILLAGEOIS)
+            
+        return roles
 
     def _distribute_roles(self):
         """Distribue aléatoirement les rôles aux joueurs et informe les Loups."""
@@ -407,6 +442,16 @@ class GameManager:
                         # Assure que le joueur IA a bien last_protected_target (corrigé dans ChatAgent factice)
                         targets_available = [p for p in alive 
                                             if p.name != player.name and p.name != player.last_protected_target]
+                        
+                        # 1. On récupère le joueur qui est le Salvateur
+                        salvateur = self.get_player_by_role(Role.SALVATEUR)
+
+                        # 2. On vérifie si le Salvateur existe et s'il est en vie
+                        if salvateur and salvateur.is_alive:
+                        # On vérifie la cible sur l'objet salvateur (le joueur)
+                            if target_name == salvateur.last_protected_target:
+                            # Logique pour empêcher la double protection...
+                                pass
                         
                         if targets_available:
                             target_player = random.choice(targets_available)
