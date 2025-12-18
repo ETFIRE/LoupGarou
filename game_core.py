@@ -395,36 +395,31 @@ class GameManager:
 
     def _night_phase(self):
         """Orchestre les actions secrètes des joueurs."""
-        
+        from collections import defaultdict
+        import random
+
         alive = self.get_alive_players()
-        
-        # self.day a été incrémenté dans LoupGarouGame.on_update / _start_night_phase
-        
         night_messages = []
-        
+    
         # 1. NUIT BLANCHE (aucune mort ou action spéciale la Nuit 1)
         if self.day == 1:
             night_messages.append("🌙 Première nuit passée. Le village se réveille sans drame !")
             self._recalculate_wolf_count()
             return "\n".join(night_messages)
-        
-        
-        # --- LOGIQUE POUR NUIT 2 et suivantes ---
-        
+            # --- LOGIQUE POUR NUIT 2 et suivantes ---
         actions_by_priority = defaultdict(list)
         for p in alive:
-             if p.role and p.role.night_action != NightAction.NONE:
-                 actions_by_priority[p.role.priority].append(p)
-
+            if p.role and p.role.night_action != NightAction.NONE:
+                actions_by_priority[p.role.priority].append(p)
         sorted_priorities = sorted(actions_by_priority.keys())
-        
+    
         self.night_kill_target = None
-        self.night_protected_target = None # Réinitialisation
+        self.night_protected_target = None 
         is_saved_by_witch = False 
-        
+    
         for priority in sorted_priorities:
             for player in actions_by_priority[priority]:
-                
+            
                 # A. Logique VOYANTE (INVESTIGATE) - Priorité 20
                 if player.role.night_action == NightAction.INVESTIGATE and not player.is_human:
                     target_name = player.decide_night_action(alive)
@@ -432,84 +427,83 @@ class GameManager:
                     if target:
                         player.history.append({
                             "role": "system", 
-                            "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value}). Utilise cette info dans le débat."
+                            "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value})."
                         })
-                
+            
                 # B. Logique SALVATEUR (PROTECT) - Priorité 25
                 elif player.role.night_action == NightAction.PROTECT:
-                    # Le Salvateur IA choisit sa cible
-                    if not player.is_human:
-                        # Assure que le joueur IA a bien last_protected_target (corrigé dans ChatAgent factice)
-                        targets_available = [p for p in alive 
-                                            if p.name != player.name and p.name != player.last_protected_target]
-                        
-                        # 1. On récupère le joueur qui est le Salvateur
-                        salvateur = self.get_player_by_role(Role.SALVATEUR)
-
-                        # 2. On vérifie si le Salvateur existe et s'il est en vie
-                        if salvateur and salvateur.is_alive:
-                        # On vérifie la cible sur l'objet salvateur (le joueur)
-                            if target_name == salvateur.last_protected_target:
-                            # Logique pour empêcher la double protection...
-                                pass
-                        
-                        if targets_available:
-                            target_player = random.choice(targets_available)
-                            self.night_protected_target = target_player.name # Définit la cible globale de protection
-                            player.last_protected_target = target_player.name # Mise à jour de l'historique du joueur
+                    target_name = None
                 
-                # C. Logique LOUPS (KILL) - Priorité 30
-                elif player.role.night_action == NightAction.KILL and player.role.camp == Camp.LOUP and not player.is_human:
-                    if not self.night_kill_target:
-                         target_name = player.decide_night_action(alive)
-                         self.night_kill_target = self.get_player_by_name(target_name)
+                    if player.is_human:
+                        # On récupère le choix stocké via l'interface
+                        target_name = getattr(self, 'human_choice', None)
+                    else:
+                        # IA : On cherche une cible valide (pas celle de la nuit précédente)
+                        last_protected = getattr(player, 'last_protected_target', None)
+                        targets_available = [p.name for p in alive if p.name != last_protected]
+                        if targets_available:
+                            target_name = random.choice(targets_available)
 
-        
-        # 3. Exécution du Meurtre des Loups
+                    # Validation et application de la protection
+                    if target_name:
+                        # Double vérification de la règle (surtout pour l'humain)
+                        if target_name != getattr(player, 'last_protected_target', None):
+                            self.night_protected_target = target_name
+                            player.last_protected_target = target_name
+                        else:
+                            # Si l'humain a triché ou erreur : pas de protection cette nuit
+                            pass
+
+                # C. Logique LOUPS (KILL) - Priorité 30
+                elif player.role.night_action == NightAction.KILL and player.role.camp == Camp.LOUP:
+                    if not self.night_kill_target:
+                        if not player.is_human:
+                            t_name = player.decide_night_action(alive)
+                        else:
+                            # Loup humain
+                            t_name = getattr(self, 'human_choice', None)
+                        self.night_kill_target = self.get_player_by_name(t_name)
+
+        # 3. Résolution du Meurtre des Loups
         kill_target = self.night_kill_target
         if kill_target:
-            
-            # --- VÉRIFICATION SALVATEUR (Protection) ---
+            # Vérification Protection SALVATEUR
             if kill_target.name == self.night_protected_target:
                 night_messages.append(f"🛡️ **{kill_target.name}** a été attaqué(e) mais **sauvé(e) par le Salvateur** !")
+                kill_target = None # On annule la mort
             else:
-            
-                # 4. Logique SORCIERE (POTION) - Priorité 40 (Après la protection)
+                # Logique SORCIERE (POTION) - Priorité 40
                 sorciere = self.get_player_by_role(Role.SORCIERE)
-                
-                # Si Sorcière IA (ou Humaine, mais Humaine agit dans l'état NIGHT_HUMAN_ACTION et son choix est stocké)
                 if sorciere and sorciere.is_alive:
-                    
-                    # Logique Sorcière IA : Utilise la potion de vie si la cible n'est pas un loup et avec 50% de chance
-                    if sorciere.has_life_potion and not sorciere.is_human: 
+                    # Sorcière IA
+                    if not sorciere.is_human and getattr(sorciere, 'has_life_potion', False):
                         if kill_target.role.camp != Camp.LOUP and random.random() < 0.5:
                             is_saved_by_witch = True
                             sorciere.has_life_potion = False 
-                            night_messages.append(f"✅ {kill_target.name} a été attaqué(e) mais sauvé(e) par la Sorcière (IA) !")
-                    
-                    # On suppose que si la Sorcière humaine a choisi 'SAUVER', cela serait intégré ici
-                    # (pour l'instant, l'implémentation est simplifiée et l'action humaine n'a pas d'effet direct sur is_saved_by_witch ici)
-                    
-                # Exécution de l'élimination (sauf si sauvé par la Sorcière)
-                if kill_target and not is_saved_by_witch:
+                            night_messages.append(f"✅ {kill_target.name} a été sauvé(e) par la Sorcière !")
+                
+                    # Sorcière Humaine (vérification du choix 'SAUVER')
+                    elif sorciere.is_human and getattr(self, 'human_action_type', None) == "SAUVER":
+                        if getattr(sorciere, 'has_life_potion', False):
+                            is_saved_by_witch = True
+                            sorciere.has_life_potion = False
+                            night_messages.append(f"✅ Vous avez utilisé votre potion pour sauver {kill_target.name} !")
+                # Exécution finale de la mort si non sauvé
+                if not is_saved_by_witch:
                     message_mort = self._kill_player(kill_target.name, reason="tué par les Loups")
                     night_messages.append(message_mort)
-                elif kill_target and is_saved_by_witch:
-                    pass
-
-            if kill_target and not is_saved_by_witch:
-                message_mort = self._kill_player(kill_target.name, reason="tué par les Loups")
-                night_messages.append(message_mort)
-                # On peut retourner un tuple (message, a_ete_tue_par_loup)
-                self.last_death_was_by_wolf = True
+                    self.last_death_was_by_wolf = True
+                else:
+                    self.last_death_was_by_wolf = False
 
         self._recalculate_wolf_count()
-        return "\n".join(night_messages) if night_messages else "Nuit passée, personne n'est mort."
-    
-    
-    
+        # On réinitialise les choix humains pour la nuit suivante
+        self.human_choice = None
+        self.human_action_type = None
 
-
+        return "\n".join(night_messages) if night_messages else "La nuit a été calme."
+    
+    
     # --- Phase de Jour (Vote) ---
 
     def _day_phase(self):
