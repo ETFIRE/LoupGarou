@@ -175,7 +175,7 @@ class ChatInput:
 
 class LoupGarouGame(arcade.Window):
     
-    def __init__(self, width, height, title, human_name="Lucie", num_players_total=11):
+    def __init__(self, width, height, title):
         # 1. INITIALISATION DE LA FENÊTRE
         super().__init__(width, height, title, resizable=True)
         self.set_fullscreen(True)
@@ -261,6 +261,11 @@ class LoupGarouGame(arcade.Window):
             print(f"Erreur lors du chargement du son : {e}")
 
         self.night_processing = False
+
+        # Nouvelles variables de menu
+        self.setup_human_name = "Lucie"
+        self.setup_num_players = 11
+        self.current_state = GameState.SETUP
         
         # 2. Chargement du fond d'écran
         BACKGROUND_IMAGE_PATH = "images/fond/images.png" 
@@ -295,8 +300,8 @@ class LoupGarouGame(arcade.Window):
         arcade.set_background_color(arcade.color.DARK_BLUE_GRAY)
 
         # 4. Initialisation du Moteur de Jeu
-        self.game_manager = GameManager(human_player_name=human_name, num_players_total=num_players_total)
-        self.human_player = self.game_manager.human_player
+        self.game_manager = None 
+        self.human_player = None
         
         # 5. Variables d'Affichage et Log
         self.log_messages = [] 
@@ -328,12 +333,6 @@ class LoupGarouGame(arcade.Window):
         
         # 7. INITIALISATION DES ÉLÉMENTS D'INTERFACE UTILISATEUR
         self._setup_ui_elements() 
-        
-        # 8. Initialisation des Sprites
-        self._setup_sprites()
-        
-        # 9. Commencer le jeu
-        self.start_game_loop()
 
         # 10. Initialisation du Speech-to-Text
         self.is_listening = False
@@ -455,6 +454,14 @@ class LoupGarouGame(arcade.Window):
             "COMMENCER LA PARTIE", 
             "start_game"
         )
+
+        if self.current_state == GameState.SETUP:
+            # Bouton Moins
+            self.btn_minus = MenuButton(self.width/2 - 60, self.height/2, 40, 40, "-", "MINUS")
+            # Bouton Plus
+            self.btn_plus = MenuButton(self.width/2 + 60, self.height/2, 40, 40, "+", "PLUS")
+            # Bouton Valider
+            self.start_button = MenuButton(self.width/2, self.height/2 - 100, 250, 50, "LANCER LA PARTIE", "START_GAME")
         
     def _setup_sprites(self):
         """Crée les représentations visuelles des joueurs."""
@@ -560,10 +567,17 @@ class LoupGarouGame(arcade.Window):
         """Gère le clic de la souris selon l'état du jeu."""
         
         if self.current_state == GameState.SETUP:
-            # Vérification du bouton de démarrage
-            if self.start_button and self.start_button.check_click(x, y):
-                if self.sound_start_game:
-                    arcade.play_sound(self.sound_start_game) 
+            if self.btn_minus.check_click(x, y) and self.setup_num_players > 10:
+                self.setup_num_players -= 1
+            elif self.btn_plus.check_click(x, y) and self.setup_num_players < 15:
+                self.setup_num_players += 1
+            elif self.start_button.check_click(x, y):
+                # C'est ICI qu'on initialise le moteur de jeu réellement
+                self.game_manager = GameManager(human_player_name=self.setup_human_name, 
+                                          num_players_total=self.setup_num_players)
+                self.human_player = self.game_manager.human_player
+                self._setup_sprites() # On crée les sprites maintenant qu'on a le nombre exact
+                self.start_game_loop() # On lance la logique de jeu 
                 
                 cupidon = self.game_manager.get_player_by_role(Role.CUPIDON)
                 
@@ -764,22 +778,28 @@ class LoupGarouGame(arcade.Window):
     # --- Autres Méthodes de Classe (on_resize, on_key_press, etc.) ---
 
     def on_resize(self, width, height):
-        """Appelée chaque fois que la fenêtre est redimensionnée."""
         super().on_resize(width, height)
-        
         self._setup_ui_elements()
-        
-        self.player_sprites = arcade.SpriteList()
-        self.player_map = {} 
-        self._setup_sprites()
-        
-        # Recalculer la position du feu de camp
+
+        if self.game_manager is not None:
+            self.player_sprites = arcade.SpriteList()
+            self.player_map = {} 
+            self._setup_sprites()
+    
         if self.campfire_sprite:
             self.campfire_sprite.center_x = width / 2
-            self.campfire_sprite.center_y = height / 2 - 100 
+            self.campfire_sprite.center_y = height / 2 - 100
         
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
+
+        if self.current_state == GameState.SETUP:
+            if symbol == arcade.key.BACKSPACE:
+                self.setup_human_name = self.setup_human_name[:-1]
+            elif len(self.setup_human_name) < 12:
+                char = chr(symbol)
+                if char.isalnum():
+                    self.setup_human_name += char
         
         if symbol == arcade.key.CAPSLOCK:
             self.key_is_caps = not self.key_is_caps
@@ -800,11 +820,41 @@ class LoupGarouGame(arcade.Window):
                 self.message_is_complete = False 
                 self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
 
+    def _draw_setup_menu(self):
+        """Dessine l'écran de configuration initial."""
+        # Titre principal
+        arcade.draw_text("CONFIGURATION DE LA PARTIE", self.width/2, self.height/2 + 150, 
+                     arcade.color.WHITE, 30, anchor_x="center")
+
+        # Affichage du Nom
+        arcade.draw_text(f"Nom : {self.setup_human_name}", self.width/2, self.height/2 + 80, 
+                         arcade.color.CYAN, 20, anchor_x="center")
+        arcade.draw_text("(Tapez au clavier pour modifier)", self.width/2, self.height/2 + 55, 
+                         arcade.color.GRAY, 12, anchor_x="center")
+        # Affichage du Nombre de joueurs
+        arcade.draw_text(f"Nombre de joueurs : {self.setup_num_players}", self.width/2, self.height/2 + 40, 
+                     arcade.color.WHITE, 20, anchor_x="center")
+
+        # Dessin des boutons (+, -, LANCER)
+        self.btn_minus.draw()
+        self.btn_plus.draw()
+        self.start_button.draw()
 
     def on_draw(self):
         """Affichage : appelé à chaque image pour dessiner."""
         self.clear()
         
+        if self.current_state == GameState.SETUP:
+            self._draw_setup_menu() # (votre code actuel de menu)
+            return
+        
+        if self.game_manager is None or self.human_player is None:
+            return
+    
+        self.btn_minus.draw()
+        self.btn_plus.draw()
+        self.start_button.draw()
+
         # --- 1. DESSIN DU FOND D'ÉCRAN via SPRITELIST ---
         if self.background_sprite:
             self.background_sprite.width = self.width
@@ -1319,34 +1369,8 @@ class LoupGarouGame(arcade.Window):
 
 def main():
     """Fonction principale pour lancer l'application Arcade."""
-    
-    # 1. PERMETTRE AU JOUEUR DE CHOISIR SON NOM
-    try:
-        # Note: L'input console ne s'affiche pas dans l'environnement graphique, 
-        # mais fonctionne si le script est lancé depuis un terminal.
-        input_name = input("Entrez votre nom de joueur (laissez vide pour 'Lucie') : ")
-        human_name = input_name.strip() or "Lucie"
-    except EOFError:
-        human_name = "Lucie"
-        
-    # 2. PERMETTRE AU JOUEUR DE CHOISIR LE NOMBRE TOTAL DE JOUEURS
-    while True:
-        try:
-            num_input = input("Entrez le nombre TOTAL de joueurs (Min. 10, Max. 15) : ")
-            num_players = int(num_input.strip())
-            
-            # Le minimum est 10 car il y a 10 rôles spéciaux/fixes (3 Loups + 7 Villageois spé)
-            if num_players < 10 or num_players > 15:
-                print("Le nombre doit être compris entre 10 et 15.")
-                continue
-            break
-        except ValueError:
-            print("Veuillez entrer un nombre valide.")
-            
-    # 3. PASSER LE NOM ET LE NOMBRE À LA CLASSE DE JEU
-    game = LoupGarouGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE, 
-                          human_name=human_name, 
-                          num_players_total=num_players)
+    # On crée le jeu sans passer le nom ni le nombre ici
+    game = LoupGarouGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
     arcade.run()
 
 
