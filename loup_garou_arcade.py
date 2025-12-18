@@ -57,33 +57,45 @@ class MenuButton:
             "SAUVER": arcade.color.YELLOW_GREEN,
             "PASSER": arcade.color.YELLOW_ORANGE,
             "Voter": arcade.color.DARK_RED,
-            "COMMENCER": arcade.color.DARK_GREEN,
+            "LANCER": arcade.color.DARK_GREEN,
             "Envoyer": arcade.color.DARK_CYAN,
-            "PROTÉGER": arcade.color.SKY_BLUE, # COULEUR SALVATEUR
-            "Parler": arcade.color.DARK_GREEN, # COULEUR STT PAR DEFAUT
-            "ARRÊTER": arcade.color.RED_DEVIL, # COULEUR STT EN COURS
+            "PROTÉGER": arcade.color.SKY_BLUE,
+            "Parler": arcade.color.DARK_GREEN,
+            "ARRÊTER": arcade.color.RED_DEVIL,
             "DEFAULT": arcade.color.DARK_BLUE
         }
         
         base_action = self.text.split()[0]
-        # Logique pour choisir la couleur basée sur le texte (y compris Parler/ARRÊTER)
-        color = color_map.get(base_action, color_map.get(self.text.split('[')[0].strip(), color_map.get(self.text, color_map["DEFAULT"])))
+        color = color_map.get(base_action, color_map.get(self.text, color_map["DEFAULT"]))
 
-        arcade.draw_lbwh_rectangle_filled(
-            self.center_x - self.width / 2, 
-            self.center_y - self.height / 2, 
-            self.width, 
-            self.height, 
-            color
+        # Calcul manuel des bords (Left, Right, Bottom, Top)
+        l = self.center_x - self.width / 2
+        r = self.center_x + self.width / 2
+        b = self.center_y - self.height / 2
+        t = self.center_y + self.height / 2
+
+        # Dessin du corps du bouton avec la nouvelle syntaxe lrbt
+        arcade.draw_lrbt_rectangle_filled(l, r, b, t, color)
+        
+        # Bordure fine pour le relief (Flat Design)
+        arcade.draw_lrbt_rectangle_outline(l, r, b, t, arcade.color.WHITE, 1)
+
+        # Texte centré et en gras
+        arcade.draw_text(
+            self.text, 
+            self.center_x, 
+            self.center_y,
+            arcade.color.WHITE, 
+            11, 
+            anchor_x="center", 
+            anchor_y="center", 
+            bold=True
         )
-        arcade.draw_text(self.text, self.center_x, self.center_y,
-                          arcade.color.WHITE, 12, anchor_x="center", anchor_y="center")
 
     def check_click(self, x, y):
-        """Vérifie si les coordonnées de la souris sont dans le bouton."""
+        """Vérifie si les coordonnées (x, y) sont à l'intérieur du bouton."""
         return (self.center_x - self.width/2 < x < self.center_x + self.width/2 and
-                self.center_y - self.height/2 < y < self.center_y + self.height/2) 
-
+                self.center_y - self.height/2 < y < self.center_y + self.height/2)
 
 # --- Champ de Saisie de Chat ---
 class ChatInput:
@@ -100,14 +112,32 @@ class ChatInput:
         self.stt_button = None 
 
     def draw(self):
-        color = arcade.color.WHITE if self.active else arcade.color.LIGHT_GRAY
-        arcade.draw_lbwh_rectangle_filled(self.x, self.y, self.width, self.height, color)
+        # 1. Calcul des bords (Left, Right, Bottom, Top)
+        # Note : On utilise lrbt (Left, Right, Bottom, Top) pour Arcade 3.0+
+        l, r, b, t = self.x, self.x + self.width, self.y, self.y + self.height
+
+        # 2. Fond de la barre : Noir semi-transparent
+        bg_color = (20, 20, 20, 180) if not self.active else (40, 40, 40, 220)
         
-        cursor = ("|" if self.active and int(time.time() * 2) % 2 == 0 else "")
-        arcade.draw_text(self.text + cursor, 
-                          self.x + 5, self.y + 5, 
-                          arcade.color.BLACK, 14)
+        arcade.draw_lrbt_rectangle_filled(l, r, b, t, bg_color)
+
+        # 3. Bordure lumineuse (Cyan si actif, gris sinon)
+        border_color = arcade.color.CYAN if self.active else (100, 100, 100, 150)
+        border_width = 2 if self.active else 1
         
+        arcade.draw_lrbt_rectangle_outline(l, r, b, t, border_color, border_width)
+
+        # 4. Gestion du texte et du curseur moderne "_"
+        cursor = ("_" if self.active and int(time.time() * 2) % 2 == 0 else "")
+        
+        if not self.text and not self.active:
+            arcade.draw_text("Écrire un message...", self.x + 10, self.y + 8, 
+                             (150, 150, 150), 12, italic=True)
+        else:
+            arcade.draw_text(f"{self.text}{cursor}", self.x + 10, self.y + 8, 
+                             arcade.color.WHITE, 13)
+        
+        # 5. Dessin des boutons associés
         if self.send_button:
             self.send_button.draw()
         if self.stt_button: 
@@ -178,7 +208,8 @@ class LoupGarouGame(arcade.Window):
     def __init__(self, width, height, title):
         # 1. INITIALISATION DE LA FENÊTRE
         super().__init__(width, height, title, resizable=True)
-        self.set_fullscreen(True)
+        self.set_update_rate(1/60)
+        self.maximize()
 
         self.menu_background_list = arcade.SpriteList()
         if os.path.exists("images/fond/menu_bg.jpg"):
@@ -554,21 +585,21 @@ class LoupGarouGame(arcade.Window):
     # --- Gestion des Phases Cupid / Nuit ---
 
     def _start_night_phase(self):
-        """Déclenche la première nuit après la phase Cupidon (ou la nuit suivante)."""
-        
-        # Le Salvateur (PROTECT) a une action de nuit
+        """Déclenche la phase de nuit en vérifiant si le joueur est vivant et a un rôle."""
+        # Liste des actions nécessitant une intervention humaine
         active_night_roles = [NightAction.INVESTIGATE, NightAction.POTION, NightAction.PROTECT] 
+    
+        # Sécurité : vérifier si human_player existe et est en vie
+        if (self.human_player and self.human_player.is_alive and 
+            self.human_player.role and 
+            self.human_player.role.night_action in active_night_roles):
         
-        # Modification : L'action de nuit humaine (Sorcière, Voyante, Salvateur) n'est déclenchée qu'à partir du Jour 2 (Nuit 2)
-        if (self.human_player.is_alive and 
-            self.human_player.role.night_action in active_night_roles and
-            self.game_manager.day > 1):
-            
             self.current_state = GameState.NIGHT_HUMAN_ACTION
-            self.log_messages.append(f"\nNUIT {self.game_manager.day}: Exécute ton action de {self.human_player.role.name}.")
+            self.log_messages.append(f"C'est à vous d'agir ({self.human_player.role.name}).")
         else:
+            # Si le joueur est mort ou n'a pas d'action, on passe directement à l'IA
             self.current_state = GameState.NIGHT_IA_ACTION
-            self.log_messages.append(f"\nNUIT {self.game_manager.day}: Les IA agissent.")
+            self.night_processing = False # Prêt pour le thread IA
 
     def on_mouse_press(self, x, y, button, modifiers):
         """Gère le clic de la souris selon l'état du jeu."""
@@ -813,12 +844,25 @@ class LoupGarouGame(arcade.Window):
                 char = chr(symbol)
                 if char.isalnum():
                     self.setup_human_name += char
+
+        if self.chat_input.active:
+            self.chat_input.handle_key_press(symbol, modifiers)
+            return
         
+        if symbol == arcade.key.F:
+            self.set_fullscreen(not self.fullscreen)
+
         if symbol == arcade.key.CAPSLOCK:
             self.key_is_caps = not self.key_is_caps
             
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
-            self.chat_input.handle_key_press(symbol, modifiers)
+            was_active = self.chat_input.active
+            self.chat_input.check_click(x, y)
+        
+            # Si l'état change, on ne force pas de redimensionnement
+            if was_active != self.chat_input.active:
+                # On laisse arcade gérer le focus naturellement
+                pass
         
         if symbol == arcade.key.F:
             self.set_fullscreen(not self.fullscreen)
@@ -1015,9 +1059,9 @@ class LoupGarouGame(arcade.Window):
         # GESTION ASYNCHRONE DE LA NUIT IA POUR ÉVITER LE LAG
         if self.current_state == GameState.NIGHT_IA_ACTION:
             if not self.night_processing:
-                self.night_processing = True
-                # On lance le calcul de l'IA dans un thread séparé
-                threading.Thread(target=self._async_night_ai, daemon=True).start()
+                self.night_processing = True # Bloque le déclenchement de multiples threads
+                thread = threading.Thread(target=self._async_night_ai, daemon=True)
+                thread.start()
 
         elif self.current_state == GameState.DEBATE:
             self._update_debate(delta_time) 
@@ -1045,14 +1089,14 @@ class LoupGarouGame(arcade.Window):
         elif self.current_state == GameState.RESULT:
             winner = self.game_manager.check_win_condition()
             if winner:
-                 self.log_messages.append(f"\n🎉 VICTOIRE des {winner.value} ! Fin de la partie.")
-                 self.current_state = GameState.GAME_OVER
+                self.log_messages.append(f"\n🎉 VICTOIRE des {winner.value} !")
+                self.current_state = GameState.GAME_OVER
             else:
-                 self.game_manager.day += 1
-                 self.log_messages.append(f"\nJOUR {self.game_manager.day} : La NUIT tombe.") 
-                 # La phase Cupidon est ignorée après la première nuit (day > 1)
-                 self._start_night_phase()
-
+            # TRÈS IMPORTANT : Réinitialiser night_processing ici
+                self.night_processing = False 
+                self.game_manager.day += 1
+                self.log_messages.append(f"\n🌙 NUIT {self.game_manager.day} : Le village s'endort...") 
+                self._start_night_phase()
         
     # --- LOGIQUE D'ACTION HUMAINE DE NUIT ---
 
