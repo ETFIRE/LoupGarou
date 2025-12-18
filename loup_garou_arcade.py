@@ -180,6 +180,13 @@ class LoupGarouGame(arcade.Window):
         super().__init__(width, height, title, resizable=True)
         self.set_fullscreen(True)
 
+        self.menu_background_list = arcade.SpriteList()
+        if os.path.exists("images/fond/menu_bg.jpg"):
+            # On crée le sprite
+            self.menu_bg_sprite = arcade.Sprite("images/fond/menu_bg.jpg")
+            # On l'ajoute à la liste pour un dessin optimisé
+            self.menu_background_list.append(self.menu_bg_sprite)
+
         self.sound_start_game = None
         try:
             # Assurez-vous que le fichier start.mp3 ou start.wav existe dans le dossier sounds
@@ -790,6 +797,12 @@ class LoupGarouGame(arcade.Window):
             self.campfire_sprite.center_x = width / 2
             self.campfire_sprite.center_y = height / 2 - 100
         
+        if hasattr(self, 'menu_bg_sprite'):
+            self.menu_bg_sprite.width = width
+            self.menu_bg_sprite.height = height
+            self.menu_bg_sprite.center_x = width / 2
+            self.menu_bg_sprite.center_y = height / 2
+
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
 
@@ -822,6 +835,13 @@ class LoupGarouGame(arcade.Window):
 
     def _draw_setup_menu(self):
         """Dessine l'écran de configuration initial."""
+
+        # 1. Dessiner le sprite de fond
+        if len(self.menu_background_list) > 0:
+            self.menu_background_list.draw()
+        else:
+            arcade.set_background_color(arcade.color.DARK_BLUE_GRAY)
+
         # Titre principal
         arcade.draw_text("CONFIGURATION DE LA PARTIE", self.width/2, self.height/2 + 150, 
                      arcade.color.WHITE, 30, anchor_x="center")
