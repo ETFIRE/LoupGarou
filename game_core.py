@@ -148,6 +148,51 @@ class GameManager:
 
     
     # --- METHODES DE SETUP ET GETTERS ---
+
+
+    def _distribute_roles_after_human_choice(self, chosen_role):
+        """Distribue les rôles restants aux IA après le choix de l'humain."""
+        # 1. On récupère la liste complète des rôles pour le nombre de joueurs
+        # On appelle la méthode existante qui génère les rôles
+        all_possible_roles_raw = self._adjust_roles() 
+    
+        # On convertit les dictionnaires .value en objets Role pour la comparaison
+        all_possible_roles = [Role(r) for r in all_possible_roles_raw]
+    
+        # 2. On retire le rôle choisi par l'humain de la liste des rôles disponibles pour les IA
+        if chosen_role in all_possible_roles:
+            all_possible_roles.remove(chosen_role)
+        else:
+            # Sécurité : si le rôle n'est pas dans la liste type, on retire un villageois
+            villageois_roles = [r for r in all_possible_roles if r == Role.VILLAGEOIS]
+            if villageois_roles:
+                all_possible_roles.remove(Role.VILLAGEOIS)
+            else:
+                # Si vraiment pas de villageois, on retire le premier de la liste
+                all_possible_roles.pop(0)
+            
+        # 3. On mélange les rôles restants
+        random.shuffle(all_possible_roles)
+    
+        # 4. On assigne les rôles aux IA uniquement
+        ia_players = [p for p in self.players if not p.is_human]
+        for i, ia in enumerate(ia_players):
+            role_for_ia = all_possible_roles[i]
+            ia.assign_role(role_for_ia)
+        
+            # Initialisation spécifique (potions, etc.)
+            if role_for_ia == Role.SORCIERE:
+                ia.has_kill_potion = True
+                ia.has_life_potion = True
+            
+        # 5. Mise à jour des informations pour les Loups (si l'humain est loup)
+        self._recalculate_wolf_count()
+
+        for p in self.players:
+            if p.role == Role.LOUP:
+                # On donne à chaque loup la liste de ses alliés (IA et Humain)
+                p.wolf_teammates = [other.name for other in self.players 
+                                if other.role == Role.LOUP and other.name != p.name]
     
     def _create_player_instance(self, name, role, is_human):
         """Crée une instance Player ou ChatAgent."""

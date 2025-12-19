@@ -272,31 +272,51 @@ class LoupGarouGame(arcade.Window):
                 self.sound_start_game = arcade.load_sound("sounds/start.mp3")
         except Exception as e:
             print(f"Erreur chargement son de démarrage : {e}")
-            
+
+        # --- NOUVEAU : Sélection du rôle ---
+        self.available_roles = [
+            Role.VILLAGEOIS, Role.LOUP, Role.VOYANTE, Role.SORCIERE, 
+            Role.CHASSEUR, Role.CUPIDON, Role.SALVATEUR, Role.ANCIEN
+        ]
+        self.menu_role_index = 0  # Par défaut : Villageois
+        self.btn_role_next = MenuButton(0, 0, 40, 40, ">", "NEXT_ROLE")
+        self.btn_role_prev = MenuButton(0, 0, 40, 40, "<", "PREV_ROLE")
+
     def _init_sounds(self):
-        """Centralisation du chargement des sons."""
+        """Centralisation du chargement des sons et création des attributs."""
         self.sounds = {}
+    
+        # Mapping entre la clé du dictionnaire et le nom de l'attribut utilisé dans le jeu
         sound_files = {
-            "start": "sounds/start.mp3",
-            "ambient": "sounds/ambient_night.mp3",
-            "ancient": "sounds/ancient_shield.mp3",
-            "guardian": "sounds/guardian_protect.mp3",
-            "cupid": "sounds/cupid_power.mp3",
-            "hunter": "sounds/hunter_shot.mp3",
-            "seer": "sounds/seer_power.mp3",
-            "villager_death": "sounds/villager_death.mp3",
-            "witch": "sounds/witch_power.mp3",
-            "wolf_kill": "sounds/wolf_kill.mp3"
+            "start": ("sounds/start.mp3", "sound_start_game"),
+            "ambient": ("sounds/ambient_night.mp3", "bg_music"),
+            "ancient": ("sounds/ancient_shield.mp3", "sound_ancient_power"),
+            "guardian": ("sounds/guardian_protect.mp3", "sound_guardian_power"),
+            "cupid": ("sounds/cupid_power.mp3", "sound_cupid_power"),
+            "hunter": ("sounds/hunter_shot.mp3", "sound_hunter_shot"),
+            "seer": ("sounds/seer_power.mp3", "sound_seer_power"),
+            "villager_death": ("sounds/villager_death.mp3", "sound_villager_death"),
+            "witch": ("sounds/witch_power.mp3", "sound_witch_power"),
+            "wolf_kill": ("sounds/wolf_kill.mp3", "sound_wolf_kill")
         }
 
-        for key, path in sound_files.items():
+        # Initialisation de tous les attributs à None pour éviter les AttributeError
+        for _, attr_name in sound_files.values():
+            setattr(self, attr_name, None)
+
+        for key, (path, attr_name) in sound_files.items():
             if os.path.exists(path):
                 try:
                     if key == "ambient":
-                        self.bg_music = arcade.load_sound(path, streaming=True)
-                        self.music_player = arcade.play_sound(self.bg_music, volume=0.15, loop=True)
+                        # Chargement de la musique d'ambiance en streaming
+                        sound_obj = arcade.load_sound(path, streaming=True)
+                        setattr(self, attr_name, sound_obj)
+                        self.music_player = arcade.play_sound(sound_obj, volume=0.15, loop=True)
                     else:
-                        self.sounds[key] = arcade.load_sound(path)
+                        # Chargement des effets sonores standards
+                        sound_obj = arcade.load_sound(path)
+                        self.sounds[key] = sound_obj
+                        setattr(self, attr_name, sound_obj) # Crée self.sound_cupid_power, etc.
                 except Exception as e:
                     print(f"Erreur chargement son {key} : {e}")
 
@@ -546,66 +566,78 @@ class LoupGarouGame(arcade.Window):
         """Gère le clic de la souris selon l'état du jeu."""
         
         if self.current_state == GameState.SETUP:
-            # 1. Bouton PLUS : augmente le nombre (max 15)
+            # --- RÉGLAGES ---
             if self.btn_plus.check_click(x, y):
                 self.menu_num_players = min(15, self.menu_num_players + 1)
-                return # On arrête ici pour ne pas lancer le jeu
-
-            # 2. Bouton MINUS : descend le nombre (min 6)
+                return
             if self.btn_minus.check_click(x, y):
                 self.menu_num_players = max(6, self.menu_num_players - 1)
-                return # On arrête ici pour ne pas lancer le jeu
-
-            # 3. Bouton de focus pour le nom (cliquer sur la zone du nom)
-            cx, cy = self.width / 2, self.height / 2
-            if cx - 75 < x < cx + 175 and cy + 35 < y < cy + 75:
-                self.name_input_active = True
                 return
-            else:
-                self.name_input_active = False
+            if self.btn_role_next.check_click(x, y):
+                self.menu_role_index = (self.menu_role_index + 1) % len(self.available_roles)
+                return
+            if self.btn_role_prev.check_click(x, y):
+                self.menu_role_index = (self.menu_role_index - 1) % len(self.available_roles)
+                return
 
-            # 4. Bouton COMMENCER (Le vrai lancement est ici)
+            # --- FOCUS NOM ---
+            cx, cy = self.width / 2, self.height / 2
+            # Synchronisation des zones de clic avec le nouveau dessin
+            self.btn_minus.center_x, self.btn_minus.center_y = cx - 180, cy + 65
+            self.btn_plus.center_x, self.btn_plus.center_y = cx + 180, cy + 65
+        
+            self.btn_role_prev.center_x, self.btn_role_prev.center_y = cx - 220, cy - 35
+            self.btn_role_next.center_x, self.btn_role_next.center_y = cx + 220, cy - 35
+        
+            self.start_button.center_x, self.start_button.center_y = cx, cy - 160
+
+            # --- LANCEMENT UNIQUE ---
             if self.start_button.check_click(x, y):
-                # INITIALISATION RÉELLE DU JEU
+                selected_role = self.available_roles[self.menu_role_index]
+                
+                # Initialisation moteur
                 self.game_manager = GameManager(
                     human_player_name=self.menu_human_name, 
                     num_players_total=self.menu_num_players
                 )
+                
+                # Attribution rôle humain et IA
                 self.human_player = self.game_manager.human_player
-                
-                # Chargement des éléments visuels
+                self.human_player.assign_role(selected_role)
+                self.game_manager._distribute_roles_after_human_choice(selected_role)
+
+                # Mise en place interface
                 self._setup_sprites()
-                self._setup_ui_elements() 
+                self._setup_ui_elements()
                 
-                if self.sound_start_game:
+                if hasattr(self, 'sound_start_game') and self.sound_start_game:
                     arcade.play_sound(self.sound_start_game) 
                 
-                # Lancement de la logique de boucle
                 self.start_game_loop()
 
+                # Gestion Cupidon
                 cupidon = self.game_manager.get_player_by_role(Role.CUPIDON)
                 
-                # Cas 1 : Cupidon est humain
                 if cupidon and cupidon.is_human and not self.game_manager.is_cupid_phase_done:
                     self.current_state = GameState.CUPID_ACTION
                     self.log_messages.append("💘 Cupidon : Choisis DEUX joueurs à lier (clic sur leurs icônes).")
-                
-                # Cas 2 : Cupidon IA ou absent
                 else:
                     cupid_message = self.game_manager._handle_cupid_phase()
                     if cupid_message:
                         self.log_messages.append(cupid_message)
-                        if "lié" in cupid_message and self.sound_cupid_power:
+                        # Correction : hasattr et check None pour éviter le crash
+                        if "lié" in cupid_message and getattr(self, 'sound_cupid_power', None):
                             arcade.play_sound(self.sound_cupid_power)
                     
                     self.game_manager.day = 1 
                     self._start_night_phase()
                 return 
 
+        # --- ÉTATS SUIVANTS ---
         elif self.current_state == GameState.CUPID_ACTION:
             old_targets_count = len(self.cupid_targets)
             self._handle_cupid_selection_click(x, y)
-            if old_targets_count == 1 and len(self.cupid_targets) == 0 and self.sound_cupid_power:
+            if old_targets_count == 1 and len(self.cupid_targets) == 0 and getattr(self, 'sound_cupid_power', None):
                 arcade.play_sound(self.sound_cupid_power)
 
         elif self.current_state == GameState.HUMAN_ACTION:
@@ -616,26 +648,6 @@ class LoupGarouGame(arcade.Window):
                     self.game_manager.register_human_vote(voted_player_name)
                     self.action_buttons = [] 
                     self.current_state = GameState.VOTING
-                    return
-                    
-        elif self.current_state == GameState.DEBATE and self.human_player.is_alive:
-            self.chat_input.check_click(x, y)
-            if self.stt_available and self.stt_button and self.stt_button.check_click(x, y):
-                 self._handle_stt_toggle()
-                 return 
-        
-        elif self.current_state == GameState.NIGHT_HUMAN_ACTION:
-            for btn in self.action_buttons:
-                if btn.check_click(x, y):
-                    action_data = btn.action 
-                    if "PROTÉGER" in action_data and self.sound_guardian_power:
-                        arcade.play_sound(self.sound_guardian_power)
-                    elif "ENQUÊTER" in action_data and self.sound_seer_power:
-                        arcade.play_sound(self.sound_seer_power)
-                    elif (action_data == "TUER" or action_data == "SAUVER") and self.sound_witch_power:
-                        arcade.play_sound(self.sound_witch_power)
-            
-                    self._handle_human_night_action_click(x, y)
                     return
                 
     def _display_cupid_selection_indicators(self):
@@ -799,32 +811,41 @@ class LoupGarouGame(arcade.Window):
                 self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
 
     def _draw_setup_menu(self):
-        """Dessine l'écran de configuration initial."""
-
-        # 1. Dessiner le sprite de fond
+        """Dessine le menu avec un espacement horizontal et vertical aéré."""
+        # 1. Fond (Sprites)
         if len(self.menu_background_list) > 0:
             self.menu_background_list.draw()
-        else:
-            arcade.set_background_color(arcade.color.DARK_BLUE_GRAY)
 
-        # Titre principal
-        arcade.draw_text("CONFIGURATION DE LA PARTIE", self.width/2, self.height/2 + 150, 
-                     arcade.color.WHITE, 30, anchor_x="center")
+        cx, cy = self.width / 2, self.height / 2
+        # --- TITRE ---
+        arcade.draw_text("CONFIGURATION", cx, cy + 240, arcade.color.WHITE, 35, anchor_x="center", bold=True)
 
-        # --- CORRECTION ICI : menu_human_name ---
-        arcade.draw_text(f"Nom : {self.menu_human_name}", self.width/2, self.height/2 + 80, 
-                     arcade.color.CYAN, 20, anchor_x="center")
+        # --- LIGNE NOM (Y + 160) ---
+        arcade.draw_text(f"Nom : {self.menu_human_name}", cx, cy + 160, arcade.color.CYAN, 22, anchor_x="center")
+
+        # --- LIGNE JOUEURS (Y + 60) ---
+        # On écarte les boutons de 180 pixels du centre pour laisser le texte respirer
+        arcade.draw_text(f"Nombre de joueurs : {self.menu_num_players}", cx, cy + 60, arcade.color.WHITE, 20, anchor_x="center")
     
-        arcade.draw_text("(Tapez au clavier pour modifier)", self.width/2, self.height/2 + 55, 
-                     arcade.color.GRAY, 12, anchor_x="center")
-
-        # --- CORRECTION ICI : menu_num_players ---
-        arcade.draw_text(f"Nombre de joueurs : {self.menu_num_players}", self.width/2, self.height/2 + 10, 
-                 arcade.color.WHITE, 20, anchor_x="center")
-
-        # Dessin des boutons (+, -, LANCER)
+        self.btn_minus.center_x, self.btn_minus.center_y = cx - 180, cy + 65
+        self.btn_plus.center_x, self.btn_plus.center_y = cx + 180, cy + 65
         self.btn_minus.draw()
         self.btn_plus.draw()
+
+        # --- LIGNE RÔLE (Y - 40) ---
+        # On descend la ligne à Y-40 pour éviter le chevauchement avec la ligne du dessus
+        current_role = self.available_roles[self.menu_role_index]
+        role_name = current_role.value["name"]
+    
+        arcade.draw_text(f"Rôle souhaité : {role_name}", cx, cy - 40, arcade.color.GOLD, 20, anchor_x="center")
+    
+        # Boutons de rôle écartés de 220 pixels
+        self.btn_role_prev.center_x, self.btn_role_prev.center_y = cx - 220, cy - 35
+        self.btn_role_next.center_x, self.btn_role_next.center_y = cx + 220, cy - 35
+        self.btn_role_prev.draw()
+        self.btn_role_next.draw()
+        # --- BOUTON LANCER (Y - 160) ---
+        self.start_button.center_x, self.start_button.center_y = cx, cy - 160
         self.start_button.draw()
 
     def on_draw(self):
