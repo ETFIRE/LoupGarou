@@ -209,177 +209,118 @@ class LoupGarouGame(arcade.Window):
         # 1. INITIALISATION DE LA FENÊTRE
         super().__init__(width, height, title, resizable=True)
         self.set_update_rate(1/60)
-        self.maximize()
+        # self.maximize() # Optionnel selon votre préférence
 
+        # --- ÉLÉMENTS DU MENU ACCUEIL ---
+        self.menu_human_name = "Lucie"
+        self.menu_num_players = 11
+        self.name_input_active = False
+        
+        # Initialisation des boutons de réglage du menu
+        self.btn_plus = MenuButton(0, 0, 40, 40, "+", "PLUS")
+        self.btn_minus = MenuButton(0, 0, 40, 40, "-", "MINUS")
+
+        # --- CHARGEMENT DU FOND DU MENU ---
         self.menu_background_list = arcade.SpriteList()
         if os.path.exists("images/fond/menu_bg.jpg"):
-            # On crée le sprite
             self.menu_bg_sprite = arcade.Sprite("images/fond/menu_bg.jpg")
-            # On l'ajoute à la liste pour un dessin optimisé
             self.menu_background_list.append(self.menu_bg_sprite)
 
-        self.sound_start_game = None
-        try:
-            # Assurez-vous que le fichier start.mp3 ou start.wav existe dans le dossier sounds
-            if os.path.exists("sounds/start.mp3"):
-                self.sound_start_game = arcade.load_sound("sounds/start.mp3")
-        except Exception as e:
-            print(f"Erreur chargement son de démarrage : {e}")
+        # --- CHARGEMENT DES SONS ---
+        self._init_sounds()
 
-        self.bg_music = None
-        self.music_player = None
-        try:
-            if os.path.exists("sounds/ambient_night.mp3"):
-                # Utilisation de streaming=True pour les fichiers longs (musique)
-                self.bg_music = arcade.load_sound("sounds/ambient_night.mp3", streaming=True)
-                # Correction de l'argument : loop au lieu de looping
-                self.music_player = arcade.play_sound(self.bg_music, volume=0.15, loop=True)
-                print("Musique d'ambiance lancée avec succès.")
-        except Exception as e:
-            print(f"Erreur chargement musique d'ambiance : {e}")
-
-        self.sound_ancient_power = None
-        try:
-            if os.path.exists("sounds/ancient_shield.mp3"):
-                self.sound_ancient_power = arcade.load_sound("sounds/ancient_shield.mp3")
-        except Exception as e:
-            print(f"Erreur chargement son Ancien : {e}")
-
-        self.sound_guardian_power = None
-        try:
-            if os.path.exists("sounds/guardian_protect.mp3"):
-                self.sound_guardian_power = arcade.load_sound("sounds/guardian_protect.mp3")
-        except Exception as e:
-            print(f"Erreur chargement son Salvateur : {e}")
-
-        self.sound_cupid_power = None
-        try:
-            if os.path.exists("sounds/cupid_power.mp3"):
-                self.sound_cupid_power = arcade.load_sound("sounds/cupid_power.mp3")
-        except Exception as e:
-            print(f"Erreur chargement son Cupidon : {e}")
-
-        self.sound_hunter_shot = None
-        try:
-            if os.path.exists("sounds/hunter_shot.mp3"):
-                self.sound_hunter_shot = arcade.load_sound("sounds/hunter_shot.mp3")
-        except Exception as e:
-            print(f"Erreur chargement son chasseur : {e}")
-
-        self.sound_seer_power = None
-        try:
-            if os.path.exists("sounds/seer_power.mp3"):
-                self.sound_seer_power = arcade.load_sound("sounds/seer_power.mp3")
-        except Exception as e:
-            print(f"Erreur chargement son voyante : {e}")
-
-        self.sound_villager_death = None
-        try:
-            if os.path.exists("sounds/villager_death.mp3"):
-                self.sound_villager_death = arcade.load_sound("sounds/villager_death.mp3")
-        except Exception as e:
-            print(f"Erreur chargement son villageois : {e}")
-
-        self.sound_witch_power = None
-        try:
-            if os.path.exists("sounds/witch_power.mp3"):
-                self.sound_witch_power = arcade.load_sound("sounds/witch_power.mp3")
-        except Exception as e:
-            print(f"Erreur chargement son sorcière : {e}")
-
-        # --- NOUVEAU : GESTION DES SONS ---
-        self.sound_wolf_kill = None
-        try:
-            # On charge le son de mort des loups
-            if os.path.exists("sounds/wolf_kill.mp3"):
-                self.sound_wolf_kill = arcade.load_sound("sounds/wolf_kill.mp3")
-            else:
-                print("AVERTISSEMENT : sounds/wolf_kill.mp3 non trouvé.")
-        except Exception as e:
-            print(f"Erreur lors du chargement du son : {e}")
-
-        self.night_processing = False
-
-        # Nouvelles variables de menu
-        self.setup_human_name = "Lucie"
-        self.setup_num_players = 11
+        # --- ÉTAT ET MOTEUR ---
         self.current_state = GameState.SETUP
-        
-        # 2. Chargement du fond d'écran
-        BACKGROUND_IMAGE_PATH = "images/fond/images.png" 
-        self.background_sprite = None
-        self.background_list = arcade.SpriteList() 
-        
-        if os.path.exists(BACKGROUND_IMAGE_PATH):
-            self.background_sprite = arcade.Sprite(
-                BACKGROUND_IMAGE_PATH,
-                scale=1.0 
-            )
-            self.background_list.append(self.background_sprite) 
-            print(f"Fond d'écran chargé comme Sprite.")
-        else:
-             print(f"ATTENTION : Image de fond non trouvée à '{BACKGROUND_IMAGE_PATH}'.")
-             
-        # 3. Chargement du Sprite du FEU DE CAMP
-        CAMPFIRE_IMAGE_PATH = "images/fond/campfire.png" 
-        self.campfire_sprite = None
-        self.campfire_list = arcade.SpriteList()
-        
-        if os.path.exists(CAMPFIRE_IMAGE_PATH):
-            self.campfire_sprite = arcade.Sprite(
-                CAMPFIRE_IMAGE_PATH,
-                scale=0.4 # TAILLE AUGMENTÉE
-            )
-            self.campfire_list.append(self.campfire_sprite)
-        else:
-            print(f"ATTENTION : Image du feu de camp non trouvée à '{CAMPFIRE_IMAGE_PATH}'.")
-
-
-        arcade.set_background_color(arcade.color.DARK_BLUE_GRAY)
-
-        # 4. Initialisation du Moteur de Jeu
-        self.game_manager = None 
+        self.game_manager = None # Sera initialisé au clic sur START
         self.human_player = None
+        self.night_processing = False
         
-        # 5. Variables d'Affichage et Log
+        # --- GRAPHISMES DU JEU ---
+        self._init_graphics()
+
+        # --- VARIABLES DE JEU ET UI ---
         self.log_messages = [] 
         self.player_sprites = arcade.SpriteList()
         self.player_map = {} 
         self.action_buttons = []
         self.key_is_caps = False
-        
-        # --- Initialisation des boutons par sécurité ---
         self.stt_button = None 
         self.start_button = None 
-        # --------------------------------------------
         
-        # --- Variables pour l'action Cupidon ---
+        # --- ACTIONS SPÉCIALES ---
         self.cupid_targets = []
         self.cupid_selection_buttons = []
-        # ---------------------------------------
 
-        # 6. Gestion du Temps et Vitesse d'écriture (Débat)
+        # --- PARAMÈTRES DU DÉBAT ---
         self.debate_timer = 60 
         self.current_speaker = None
         self.current_message_full = ""
         self.current_message_display = ""
         self.typing_speed_counter = 0 
-        self.typing_delay = 2          # Vitesse d'écriture rapide
-        self.messages_generated = 0           
-        self.max_messages_per_debate = 10     
+        self.typing_delay = 2 
+        self.messages_generated = 0 
+        self.max_messages_per_debate = 10 
         self.message_is_complete = False 
         
-        # 7. INITIALISATION DES ÉLÉMENTS D'INTERFACE UTILISATEUR
+        # --- INITIALISATION UI ET STT ---
         self._setup_ui_elements() 
+        self._init_stt()
 
-        # 10. Initialisation du Speech-to-Text
+        self.sound_start_game = None # On l'initialise à None par défaut
+        try:
+            if os.path.exists("sounds/start.mp3"):
+                self.sound_start_game = arcade.load_sound("sounds/start.mp3")
+        except Exception as e:
+            print(f"Erreur chargement son de démarrage : {e}")
+            
+    def _init_sounds(self):
+        """Centralisation du chargement des sons."""
+        self.sounds = {}
+        sound_files = {
+            "start": "sounds/start.mp3",
+            "ambient": "sounds/ambient_night.mp3",
+            "ancient": "sounds/ancient_shield.mp3",
+            "guardian": "sounds/guardian_protect.mp3",
+            "cupid": "sounds/cupid_power.mp3",
+            "hunter": "sounds/hunter_shot.mp3",
+            "seer": "sounds/seer_power.mp3",
+            "villager_death": "sounds/villager_death.mp3",
+            "witch": "sounds/witch_power.mp3",
+            "wolf_kill": "sounds/wolf_kill.mp3"
+        }
+
+        for key, path in sound_files.items():
+            if os.path.exists(path):
+                try:
+                    if key == "ambient":
+                        self.bg_music = arcade.load_sound(path, streaming=True)
+                        self.music_player = arcade.play_sound(self.bg_music, volume=0.15, loop=True)
+                    else:
+                        self.sounds[key] = arcade.load_sound(path)
+                except Exception as e:
+                    print(f"Erreur chargement son {key} : {e}")
+
+    def _init_graphics(self):
+        """Initialisation des listes de sprites de décor."""
+        self.background_list = arcade.SpriteList() 
+        if os.path.exists("images/fond/images.png"):
+            self.background_sprite = arcade.Sprite("images/fond/images.png", scale=1.0)
+            self.background_list.append(self.background_sprite) 
+             
+        self.campfire_list = arcade.SpriteList()
+        if os.path.exists("images/fond/campfire.png"):
+            self.campfire_sprite = arcade.Sprite("images/fond/campfire.png", scale=0.4)
+            self.campfire_list.append(self.campfire_sprite)
+
+    def _init_stt(self):
+        """Initialisation du moteur Speech-to-Text."""
         self.is_listening = False
         try:
-            self.recognizer = sr.Recognizer() # Initialiser le Recognizer
+            self.recognizer = sr.Recognizer()
             self.mic = sr.Microphone()
             self.stt_available = True
         except Exception as e:
-            self.log_messages.append(f"⚠️ Erreur STT : {e}. Assurez-vous d'avoir installé 'SpeechRecognition' et 'PyAudio'.")
+            print(f"STT non disponible : {e}")
             self.stt_available = False
 
 
@@ -605,44 +546,65 @@ class LoupGarouGame(arcade.Window):
         """Gère le clic de la souris selon l'état du jeu."""
         
         if self.current_state == GameState.SETUP:
-            if self.btn_minus.check_click(x, y) and self.setup_num_players > 10:
-                self.setup_num_players -= 1
-            elif self.btn_plus.check_click(x, y) and self.setup_num_players < 15:
-                self.setup_num_players += 1
-            elif self.start_button.check_click(x, y):
-                # C'est ICI qu'on initialise le moteur de jeu réellement
-                self.game_manager = GameManager(human_player_name=self.setup_human_name, 
-                                          num_players_total=self.setup_num_players)
+            # 1. Bouton PLUS : augmente le nombre (max 15)
+            if self.btn_plus.check_click(x, y):
+                self.menu_num_players = min(15, self.menu_num_players + 1)
+                return # On arrête ici pour ne pas lancer le jeu
+
+            # 2. Bouton MINUS : descend le nombre (min 6)
+            if self.btn_minus.check_click(x, y):
+                self.menu_num_players = max(6, self.menu_num_players - 1)
+                return # On arrête ici pour ne pas lancer le jeu
+
+            # 3. Bouton de focus pour le nom (cliquer sur la zone du nom)
+            cx, cy = self.width / 2, self.height / 2
+            if cx - 75 < x < cx + 175 and cy + 35 < y < cy + 75:
+                self.name_input_active = True
+                return
+            else:
+                self.name_input_active = False
+
+            # 4. Bouton COMMENCER (Le vrai lancement est ici)
+            if self.start_button.check_click(x, y):
+                # INITIALISATION RÉELLE DU JEU
+                self.game_manager = GameManager(
+                    human_player_name=self.menu_human_name, 
+                    num_players_total=self.menu_num_players
+                )
                 self.human_player = self.game_manager.human_player
-                self._setup_sprites() # On crée les sprites maintenant qu'on a le nombre exact
-                self.start_game_loop() # On lance la logique de jeu 
                 
+                # Chargement des éléments visuels
+                self._setup_sprites()
+                self._setup_ui_elements() 
+                
+                if self.sound_start_game:
+                    arcade.play_sound(self.sound_start_game) 
+                
+                # Lancement de la logique de boucle
+                self.start_game_loop()
+
                 cupidon = self.game_manager.get_player_by_role(Role.CUPIDON)
                 
-                # Cas 1 : Cupidon est humain et doit encore agir
+                # Cas 1 : Cupidon est humain
                 if cupidon and cupidon.is_human and not self.game_manager.is_cupid_phase_done:
                     self.current_state = GameState.CUPID_ACTION
                     self.log_messages.append("💘 Cupidon : Choisis DEUX joueurs à lier (clic sur leurs icônes).")
                 
-                # Cas 2 : Cupidon est une IA (ou absent)
+                # Cas 2 : Cupidon IA ou absent
                 else:
                     cupid_message = self.game_manager._handle_cupid_phase()
                     if cupid_message:
                         self.log_messages.append(cupid_message)
-                        # Son si l'IA a lié des joueurs
                         if "lié" in cupid_message and self.sound_cupid_power:
                             arcade.play_sound(self.sound_cupid_power)
                     
                     self.game_manager.day = 1 
                     self._start_night_phase()
                 return 
-                
+
         elif self.current_state == GameState.CUPID_ACTION:
-            # On stocke le nombre de cibles avant le clic pour détecter le lien final
             old_targets_count = len(self.cupid_targets)
             self._handle_cupid_selection_click(x, y)
-            
-            # Déclenchement du son si le lien vient d'être créé par l'humain
             if old_targets_count == 1 and len(self.cupid_targets) == 0 and self.sound_cupid_power:
                 arcade.play_sound(self.sound_cupid_power)
 
@@ -651,7 +613,6 @@ class LoupGarouGame(arcade.Window):
                 if btn.check_click(x, y):
                     voted_player_name = btn.action
                     self.log_messages.append(f"🗳️ {self.human_player.name} vote pour {voted_player_name}")
-                    
                     self.game_manager.register_human_vote(voted_player_name)
                     self.action_buttons = [] 
                     self.current_state = GameState.VOTING
@@ -659,7 +620,6 @@ class LoupGarouGame(arcade.Window):
                     
         elif self.current_state == GameState.DEBATE and self.human_player.is_alive:
             self.chat_input.check_click(x, y)
-            
             if self.stt_available and self.stt_button and self.stt_button.check_click(x, y):
                  self._handle_stt_toggle()
                  return 
@@ -668,57 +628,15 @@ class LoupGarouGame(arcade.Window):
             for btn in self.action_buttons:
                 if btn.check_click(x, y):
                     action_data = btn.action 
-            
-                    # --- GESTION DES SONS DE NUIT ---
-                    # 1. Le Salvateur
                     if "PROTÉGER" in action_data and self.sound_guardian_power:
                         arcade.play_sound(self.sound_guardian_power)
-
-                    # 2. La Voyante
                     elif "ENQUÊTER" in action_data and self.sound_seer_power:
                         arcade.play_sound(self.sound_seer_power)
-                    
-                    # 3. La Sorcière (Potions)
                     elif (action_data == "TUER" or action_data == "SAUVER") and self.sound_witch_power:
                         arcade.play_sound(self.sound_witch_power)
             
-                    # Traitement logique du clic
                     self._handle_human_night_action_click(x, y)
                     return
-
-    def _handle_cupid_selection_click(self, x, y):
-        """Gère la sélection des amoureux par Cupidon humain."""
-        
-        clicked_player_name = None
-        
-        # Vérification des clics sur les sprites des joueurs
-        for player in self.game_manager.get_alive_players():
-            sprite = self.player_map.get(player.name)
-            if sprite and sprite.collides_with_point((x, y)):
-                clicked_player_name = player.name
-                break
-        
-        if clicked_player_name:
-            
-            if clicked_player_name in self.cupid_targets:
-                self.cupid_targets.remove(clicked_player_name)
-                self.log_messages.append(f"💘 Désélectionné: {clicked_player_name}")
-            elif len(self.cupid_targets) < 2:
-                self.cupid_targets.append(clicked_player_name)
-                self.log_messages.append(f"💘 Sélectionné: {clicked_player_name} (Total: {len(self.cupid_targets)}/2)")
-
-            if len(self.cupid_targets) == 2:
-                if self.sound_cupid_power:
-                    arcade.play_sound(self.sound_cupid_power)
-                # Applique le choix et passe à la nuit
-                choice_str = f"{self.cupid_targets[0]},{self.cupid_targets[1]}"
-                cupid_message = self.game_manager._handle_cupid_phase(human_choice=choice_str)
-                self.log_messages.append(cupid_message)
-                self.cupid_targets = [] # Nettoyer la sélection
-                
-                # Passer à la première phase de nuit
-                self.game_manager.day = 1 
-                self._start_night_phase()
                 
     def _display_cupid_selection_indicators(self):
         """Dessine un cercle pour les joueurs sélectionnés par Cupidon ET la ligne des amoureux."""
@@ -837,42 +755,45 @@ class LoupGarouGame(arcade.Window):
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
 
+        # --- 1. SAISIE DU NOM DANS LE MENU SETUP ---
         if self.current_state == GameState.SETUP:
             if symbol == arcade.key.BACKSPACE:
-                self.setup_human_name = self.setup_human_name[:-1]
-            elif len(self.setup_human_name) < 12:
-                char = chr(symbol)
-                if char.isalnum():
-                    self.setup_human_name += char
+                self.menu_human_name = self.menu_human_name[:-1]
+            elif len(self.menu_human_name) < 12:
+                try:
+                    char = chr(symbol)
+                    if char.isalnum():
+                        # Gestion des majuscules via Shift ou CapsLock
+                        if (modifiers & arcade.key.MOD_SHIFT) or self.key_is_caps:
+                            self.menu_human_name += char.upper()
+                        else:
+                            self.menu_human_name += char.lower()
+                except ValueError:
+                    pass # Ignore les touches non-caractères (F1, Ctrl, etc.)
+            return # On arrête ici si on est dans le menu
 
+        # --- 2. SAISIE DU CHAT PENDANT LE DÉBAT ---
         if self.chat_input.active:
             self.chat_input.handle_key_press(symbol, modifiers)
             return
-        
+    
+        # --- 3. RACCOURCIS GÉNÉRAUX ---
+        # Plein écran
         if symbol == arcade.key.F:
             self.set_fullscreen(not self.fullscreen)
 
-        if symbol == arcade.key.CAPSLOCK:
+        # Verrouillage majuscule (pour votre variable interne)
+        elif symbol == arcade.key.CAPSLOCK:
             self.key_is_caps = not self.key_is_caps
-            
-        if self.current_state == GameState.DEBATE and self.human_player.is_alive:
-            was_active = self.chat_input.active
-            self.chat_input.check_click(x, y)
         
-            # Si l'état change, on ne force pas de redimensionnement
-            if was_active != self.chat_input.active:
-                # On laisse arcade gérer le focus naturellement
-                pass
-        
-        if symbol == arcade.key.F:
-            self.set_fullscreen(not self.fullscreen)
-
+        # Passer le débat (Espace)
         elif symbol == arcade.key.SPACE:
             if self.current_state == GameState.DEBATE:
                 self.debate_timer = 0 
                 if self.current_speaker:
                     self.current_message_display = self.current_message_full
                     self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
+            
                 self.current_speaker = None
                 self.message_is_complete = False 
                 self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
@@ -890,14 +811,16 @@ class LoupGarouGame(arcade.Window):
         arcade.draw_text("CONFIGURATION DE LA PARTIE", self.width/2, self.height/2 + 150, 
                      arcade.color.WHITE, 30, anchor_x="center")
 
-        # Affichage du Nom
-        arcade.draw_text(f"Nom : {self.setup_human_name}", self.width/2, self.height/2 + 80, 
-                         arcade.color.CYAN, 20, anchor_x="center")
+        # --- CORRECTION ICI : menu_human_name ---
+        arcade.draw_text(f"Nom : {self.menu_human_name}", self.width/2, self.height/2 + 80, 
+                     arcade.color.CYAN, 20, anchor_x="center")
+    
         arcade.draw_text("(Tapez au clavier pour modifier)", self.width/2, self.height/2 + 55, 
-                         arcade.color.GRAY, 12, anchor_x="center")
-        # Affichage du Nombre de joueurs
-        arcade.draw_text(f"Nombre de joueurs : {self.setup_num_players}", self.width/2, self.height/2 + 40, 
-                     arcade.color.WHITE, 20, anchor_x="center")
+                     arcade.color.GRAY, 12, anchor_x="center")
+
+        # --- CORRECTION ICI : menu_num_players ---
+        arcade.draw_text(f"Nombre de joueurs : {self.menu_num_players}", self.width/2, self.height/2 + 10, 
+                 arcade.color.WHITE, 20, anchor_x="center")
 
         # Dessin des boutons (+, -, LANCER)
         self.btn_minus.draw()

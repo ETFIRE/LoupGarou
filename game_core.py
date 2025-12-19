@@ -61,7 +61,7 @@ IA_NAMES_POOL = [
 
 class Player:
     """Représente un joueur humain (ou la base pour ChatAgent)."""
-    def __init__(self, name, role, is_human=False):
+    def __init__(self, name, role=None, is_human=False):
         self.name = name
         self.is_human = is_human
         self.role = role
@@ -130,13 +130,29 @@ class GameManager:
         self.night_protected_target = None 
         # -----------------------------------
 
+        # VÉRIFIEZ QUE CETTE MÉTHODE EXISTE BIEN AVEC CE NOM EXACT
+    def _setup_players(self, human_player_name):
+        """Initialise la liste des joueurs (IA et Humain)."""
+        num_ia = self.num_players_total - 1
+        
+        # Mélange et sélection des noms d'IA
+        random.shuffle(IA_NAMES_POOL)
+        ia_names = IA_NAMES_POOL[:num_ia]
+        
+        # 1. Créer le joueur humain
+        self.players.append(Player(human_player_name, is_human=True))
+        
+        # 2. Créer les joueurs IA
+        for name in ia_names:
+            self.players.append(self._create_player_instance(name, None, is_human=False))
+
     
     # --- METHODES DE SETUP ET GETTERS ---
     
     def _create_player_instance(self, name, role, is_human):
         """Crée une instance Player ou ChatAgent."""
         if is_human:
-            return Player(name, is_human=True)
+            return Player(name, role=role, is_human=True)
         else:
             # Création du chemin de contexte unique pour chaque IA
             context_path = os.path.join("context", f"{name.replace(' ', '_').lower()}.txt") 
@@ -154,49 +170,38 @@ class GameManager:
 
 
     def _adjust_roles(self):
-        """Ajuste la liste finale des rôles en ajoutant/retirant des Villageois."""
+        """Ajuste la liste des rôles pour 6-15 joueurs avec min 2 loups et 4 villageois."""
+        # 1. On commence par les deux loups obligatoires
+        roles_list = [Role.LOUP, Role.LOUP]
+    
+        # 2. On définit les rôles spéciaux disponibles (priorité)
+        # On en choisit certains selon le nombre de joueurs pour ne pas dépasser le total
+        special_roles_pool = [
+            Role.VOYANTE, Role.SORCIERE, Role.CHASSEUR, 
+            Role.CUPIDON, Role.MAIRE, Role.SALVATEUR, Role.ANCIEN
+        ]
+    
+        # Si on a plus de 10 joueurs, on peut ajouter un 3ème loup comme dans votre version originale
+        if self.num_players_total >= 11:
+            roles_list.append(Role.LOUP)
+
+        # 3. Calculer combien de places il reste pour atteindre le total
+        # (Total - Loups déjà mis)
+        remaining_slots = self.num_players_total - len(roles_list)
+    
+        # 4. Remplir avec les rôles spéciaux jusqu'à ce qu'il ne reste que 4 places (pour les villageois obligatoires)
+        # Ou jusqu'à épuisement du pool de rôles spéciaux.
+        current_specials = 0
+        while remaining_slots > 4 and current_specials < len(special_roles_pool):
+            roles_list.append(special_roles_pool[current_specials])
+            remaining_slots -= 1
+            current_specials += 1
         
-        roles_list = list(self.base_roles)
-        num_base_roles = len(roles_list)
-        
-        if num_base_roles > self.num_players_total:
-            raise ValueError(
-                f"Nombre de joueurs trop faible ({self.num_players_total}). "
-                f"Minimum requis: {num_base_roles} pour les rôles spéciaux."
-            )
-            
-        required_villagers = self.num_players_total - num_base_roles
-        
-        for _ in range(required_villagers):
+        # 5. Le reste est obligatoirement des Villageois simples (minimum 4 garanti par la boucle ci-dessus)
+        for _ in range(remaining_slots):
             roles_list.append(Role.VILLAGEOIS)
-            
-        # On retourne les valeurs brutes de l'Enum pour la compatibilité avec le reste du code
-        return [r.value for r in roles_list] 
         
-    def _setup_players(self, human_player_name):
-        """Initialise la liste des joueurs (IA et Humain) avec attribution de rôles."""
-        num_ia = self.num_players_total - 1
-        
-        # 1. Préparer et mélanger les noms d'IA
-        random.shuffle(IA_NAMES_POOL)
-        ia_names = IA_NAMES_POOL[:num_ia]
-        
-        # 2. Générer la liste des rôles pour toute la partie et la mélanger
-        # On suppose que vous avez une méthode _generate_roles qui renvoie une liste d'objets Role
-        roles_pool = self._generate_roles(self.num_players_total)
-        random.shuffle(roles_pool)
-        
-        # 3. Créer le joueur humain avec le premier rôle de la liste
-        human_role = roles_pool.pop()
-        self.human_player = Player(human_player_name, role=human_role, is_human=True)
-        self.players.append(self.human_player)
-        
-        # 4. Création des IA
-        for name in ia_names:
-            if not roles_pool:
-                break
-            ia_role = roles_pool.pop()
-            self.players.append(self._create_player_instance(name, ia_role, is_human=False))
+        return [r.value for r in roles_list]
         
     def _generate_roles(self, total_players):
         """Génère une liste de rôles équilibrée pour la partie."""
