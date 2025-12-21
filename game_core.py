@@ -186,49 +186,46 @@ class GameManager:
     # --- METHODES DE SETUP ET GETTERS ---
 
 
-    def _distribute_roles_after_human_choice(self, chosen_role):
-        """Distribue les rôles restants aux IA après le choix de l'humain."""
-        # 1. On récupère la liste complète des rôles pour le nombre de joueurs
-        # On appelle la méthode existante qui génère les rôles
-        all_possible_roles_raw = self._adjust_roles() 
-    
-        # On convertit les dictionnaires .value en objets Role pour la comparaison
-        all_possible_roles = [Role(r) for r in all_possible_roles_raw]
-    
-        # 2. On retire le rôle choisi par l'humain de la liste des rôles disponibles pour les IA
-        if chosen_role in all_possible_roles:
-            all_possible_roles.remove(chosen_role)
-        else:
-            # Sécurité : si le rôle n'est pas dans la liste type, on retire un villageois
-            villageois_roles = [r for r in all_possible_roles if r == Role.VILLAGEOIS]
-            if villageois_roles:
-                all_possible_roles.remove(Role.VILLAGEOIS)
-            else:
-                # Si vraiment pas de villageois, on retire le premier de la liste
-                all_possible_roles.pop(0)
-            
-        # 3. On mélange les rôles restants
-        random.shuffle(all_possible_roles)
-    
-        # 4. On assigne les rôles aux IA uniquement
-        ia_players = [p for p in self.players if not p.is_human]
-        for i, ia in enumerate(ia_players):
-            role_for_ia = all_possible_roles[i]
-            ia.assign_role(role_for_ia)
+    def _distribute_roles_after_human_choice(self, human_role, num_wolves_chosen):
+        """Distribue les rôles en respectant le choix de l'utilisateur."""
         
-            # Initialisation spécifique (potions, etc.)
-            if role_for_ia == Role.SORCIERE:
-                ia.has_kill_potion = True
-                ia.has_life_potion = True
-            
-        # 5. Mise à jour des informations pour les Loups (si l'humain est loup)
-        self._recalculate_wolf_count()
+        raw_roles = self._adjust_roles()
+        all_possible_roles = [Role(r) for r in raw_roles]
 
-        for p in self.players:
-            if p.role == Role.LOUP:
-                # On donne à chaque loup la liste de ses alliés (IA et Humain)
-                p.wolf_teammates = [other.name for other in self.players 
-                                if other.role == Role.LOUP and other.name != p.name]
+        all_possible_roles = [r for r in all_possible_roles if r != Role.LOUP]
+       
+        if human_role in all_possible_roles:
+            all_possible_roles.remove(human_role)
+
+        roles_to_assign = []
+
+        # 4. On ajoute EXACTEMENT le nombre de loups choisi
+        wolves_to_add = num_wolves_chosen
+        if human_role == Role.LOUP:
+            wolves_to_add -= 1
+
+        for _ in range(max(0, wolves_to_add)):
+            roles_to_assign.append(Role.LOUP)
+    
+        slots_needed = (self.num_players_total - 1) - len(roles_to_assign)
+        roles_to_assign.extend(all_possible_roles[:slots_needed])
+
+        while len(roles_to_assign) < (self.num_players_total - 1):
+            roles_to_assign.append(Role.VILLAGEOIS)
+    
+        random.shuffle(roles_to_assign)
+        ai_players = [p for p in self.players if not p.is_human]
+        for i, ai in enumerate(ai_players):
+            ai.assign_role(roles_to_assign[i])
+    
+        self.wolves_alive = num_wolves_chosen
+
+        
+        if self.human_player.role and self.human_player.role.camp == Role.LOUP.camp:
+            self.human_player.wolf_teammates = [
+                p.name for p in self.players 
+                if p.role == Role.LOUP and not p.is_human
+            ]
     
     def _create_player_instance(self, name, role, is_human):
         """Crée une instance Player ou ChatAgent."""
@@ -375,16 +372,49 @@ class GameManager:
         return [{'name': p.name, 'is_alive': p.is_alive} for p in self.players]
 
     def check_win_condition(self):
-        """Vérifie si un camp a gagné."""
-        alive = self.get_alive_players()
-        wolves = sum(1 for p in alive if p.role.camp == Camp.LOUP)
-        villagers = sum(1 for p in alive if p.role.camp == Camp.VILLAGE)
-        
-        if wolves == 0:
-            return Camp.VILLAGE
-        if wolves >= villagers:
-            return Camp.LOUP
+        """
+        Vérifie les conditions de victoire.
+        - Villageois gagnent si tous les loups sont morts.
+        - Loups gagnent si leur nombre est supérieur ou égal au nombre de villageois.
+        """
+        alive_players = self.get_alive_players() #
+    
+        # Compter les survivants par camp
+        wolves = [p for p in alive_players if p.role.camp == Camp.LOUP] #
+        villagers = [p for p in alive_players if p.role.camp == Camp.VILLAGE] #
+    
+        num_wolves = len(wolves) #
+        num_villagers = len(villagers) #
+
+        # Condition 1 : Plus aucun loup
+        if num_wolves == 0: #
+            return Camp.VILLAGE #
+
+        # Condition 2 : Autant de loups que de villageois (ou plus)
+        if num_wolves >= num_villagers: #
+            return Camp.LOUP #
+
         return None
+    
+    def shuffle_all_roles(self):
+        """Redistribue les rôles actuels entre tous les joueurs vivants."""
+        alive_players = self.get_alive_players()
+    
+    
+        current_roles = [p.role for p in alive_players]
+        random.shuffle(current_roles)
+    
+        for i, player in enumerate(alive_players):
+            player.assign_role(current_roles[i])
+        
+        if self.human_player.is_alive:
+            if self.human_player.role.camp == Camp.LOUP:
+                self.human_player.wolf_teammates = [
+                    p.name for p in alive_players 
+                    if p.role.camp == Camp.LOUP and not p.is_human
+                ]
+            else:
+                self.human_player.wolf_teammates = []
         
     # --- Logique de Mort Centralisée ---
     def _kill_player(self, target_player_name, reason="tué par les Loups"):
