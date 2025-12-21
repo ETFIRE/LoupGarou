@@ -9,6 +9,7 @@ import sys
 from dotenv import load_dotenv
 import speech_recognition as sr
 import threading
+import math
 import player # Nécessaire pour l'écoute non bloquante
 
 load_dotenv() 
@@ -710,7 +711,25 @@ class LoupGarouGame(arcade.Window):
     def _update_cupid_visuals(self):
         """Positionne précisément le trait et les textes UwU."""
         self.cupid_indicators.clear()
-        import math
+
+        # --- 1. CROIX ROUGE POUR TOUS LES MORTS ---
+        for player in self.game_manager.players:
+            if not player.is_alive:
+                sprite = self.player_map.get(player.name)
+                if sprite:
+                    # On crée un "X" avec deux traits rouges
+                    size = int(sprite.width * 0.8)
+                    thickness = 5 # Croix bien visible
+                    
+                    # Branche 1 : \
+                    line1 = arcade.SpriteSolidColor(size, thickness, arcade.color.RED)
+                    line1.position, line1.angle = sprite.position, 45
+                    self.cupid_indicators.append(line1)
+                    
+                    # Branche 2 : /
+                    line2 = arcade.SpriteSolidColor(size, 5, arcade.color.RED)
+                    line2.position, line2.angle = sprite.position, -45
+                    self.cupid_indicators.append(line2)
 
         if self.game_manager.lovers and len(self.game_manager.lovers) == 2:
             n1, n2 = self.game_manager.lovers
