@@ -1,12 +1,9 @@
-# enums_and_roles.py
-
 from enum import Enum 
 
 # --- Camps (Factions) ---
 class Camp(Enum):
     VILLAGE = "Villageois"
     LOUP = "Loups-Garous"
-    SOLO = "Solitaire" # Non utilisé pour l'instant, mais bonne pratique
 
 # --- Actions de Nuit Possibles ---
 class NightAction(Enum):
@@ -14,7 +11,7 @@ class NightAction(Enum):
     KILL = 1         # Loup-Garou
     INVESTIGATE = 2  # Voyante
     POTION = 3       # Sorcière
-    PAIR = 4         # Cupidon (NOUVEAU)
+    PAIR = 4         # Cupidon
     PROTECT = 5      # Salvateur
 
 # --- Définition des Rôles et de leurs Attributs ---
@@ -58,7 +55,6 @@ class Role(Enum):
         "priority": 0
     }
     
-    # --- NOUVEAU RÔLE : Cupidon ---
     CUPIDON = {
         "name": "Cupidon",
         "camp": Camp.VILLAGE,
@@ -66,7 +62,6 @@ class Role(Enum):
         "priority": 10
     }
     
-    # --- NOUVEAU RÔLE : Maire ---
     MAIRE = {
         "name": "Maire",
         "camp": Camp.VILLAGE,
@@ -74,7 +69,6 @@ class Role(Enum):
         "priority": 0
     }
 
-    # --- NOUVEAU RÔLE : Salvateur ---
     SALVATEUR = {
         "name": "Salvateur",
         "camp": Camp.VILLAGE,
@@ -82,7 +76,6 @@ class Role(Enum):
         "priority": 25 # Priorité entre la Voyante (20) et les Loups (30)
     }
 
-    # --- RÔLE : ANCIEN (NOUVEAU) ---
     ANCIEN = {
         "name": "Ancien",
         "camp": Camp.VILLAGE,
@@ -91,7 +84,6 @@ class Role(Enum):
     }
     
 
-    # --- Pour faciliter la gestion des rôles IA ---
     @property
     def name(self):
         return self.value["name"]
