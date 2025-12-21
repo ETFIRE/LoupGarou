@@ -381,20 +381,40 @@ class GameManager:
     
         # Compter les survivants par camp
         wolves = [p for p in alive_players if p.role.camp == Camp.LOUP] #
-        villagers = [p for p in alive_players if p.role.camp == Camp.VILLAGEOIS] #
+        villagers = [p for p in alive_players if p.role.camp == Camp.VILLAGE] #
     
         num_wolves = len(wolves) #
         num_villagers = len(villagers) #
 
         # Condition 1 : Plus aucun loup
         if num_wolves == 0: #
-            return Camp.VILLAGEOIS #
+            return Camp.VILLAGE #
 
         # Condition 2 : Autant de loups que de villageois (ou plus)
         if num_wolves >= num_villagers: #
             return Camp.LOUP #
 
         return None
+    
+    def shuffle_all_roles(self):
+        """Redistribue les rôles actuels entre tous les joueurs vivants."""
+        alive_players = self.get_alive_players()
+    
+    
+        current_roles = [p.role for p in alive_players]
+        random.shuffle(current_roles)
+    
+        for i, player in enumerate(alive_players):
+            player.assign_role(current_roles[i])
+        
+        if self.human_player.is_alive:
+            if self.human_player.role.camp == Camp.LOUP:
+                self.human_player.wolf_teammates = [
+                    p.name for p in alive_players 
+                    if p.role.camp == Camp.LOUP and not p.is_human
+                ]
+            else:
+                self.human_player.wolf_teammates = []
         
     # --- Logique de Mort Centralisée ---
     def _kill_player(self, target_player_name, reason="tué par les Loups"):

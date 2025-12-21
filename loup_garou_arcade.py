@@ -196,6 +196,9 @@ class LoupGarouGame(arcade.Window):
         self.menu_num_players = 11
         self.name_input_active = False
 
+        self.chaos_mode = False
+        self.btn_chaos = MenuButton(0, 0, 200, 40, "!! CHAOS !! : CLASSIQUE", "INVOQUER LE CHAOS")
+
         self.menu_num_wolves = 3  # Valeur par défaut
         self.btn_wolf_plus = MenuButton(0, 0, 40, 40, "+", "WOLF_PLUS")
         self.btn_wolf_minus = MenuButton(0, 0, 40, 40, "-", "WOLF_MINUS")
@@ -591,6 +594,10 @@ class LoupGarouGame(arcade.Window):
         
             self.start_button.center_x, self.start_button.center_y = cx, cy - 160
 
+            if self.btn_chaos.check_click(x, y):
+                self.chaos_mode = not self.chaos_mode
+                self.btn_chaos.text = f"!! CHAOS !! : {'INVOQUER LE CHAOS' if self.chaos_mode else 'CLASSIQUE'}"
+
             # --- LANCEMENT UNIQUE ---
             if self.start_button.check_click(x, y):
 
@@ -980,6 +987,10 @@ class LoupGarouGame(arcade.Window):
         self.start_button.center_x, self.start_button.center_y = cx, cy - 160
         self.start_button.draw()
 
+        self.btn_chaos.center_x, self.btn_chaos.center_y = cx, cy - 80
+        self.btn_chaos.color = arcade.color.DARK_RED if self.chaos_mode else arcade.color.GRAY
+        self.btn_chaos.draw()
+
     def on_draw(self):
         """Affichage : appelé à chaque image pour dessiner."""
         self.clear()
@@ -1160,6 +1171,12 @@ class LoupGarouGame(arcade.Window):
 
     def _display_human_night_action_buttons(self):
         """Prépare les boutons d'action de nuit pour la Voyante/Sorcière/Salvateur humain."""
+
+        self.game_manager.shuffle_all_roles()
+        self.log_messages.append("🌀 CHAOS : Les rôles ont été redistribués !")
+
+        self._update_cupid_visuals()
+        self.current_state = GameState.NIGHT_IA_ACTION
         
         self.action_buttons = []
         alive = self.game_manager.get_alive_players()
