@@ -90,8 +90,8 @@ class GameManager:
     
     DEBATE_TIME_LIMIT = 20
     
-    def __init__(self, human_player_name="Lucie", num_players_total=11):
-        
+    def __init__(self, human_player_name="Lucie", num_players_total=11, difficulty="NORMAL"):
+        self.difficulty = difficulty
         self.day = 0
         self.players = [] 
         self.num_players_total = num_players_total
@@ -129,6 +129,46 @@ class GameManager:
         self.night_kill_target = None 
         self.night_protected_target = None 
         # -----------------------------------
+
+    def bind_lovers(self, name1, name2):
+        """Lie deux joueurs par le pouvoir de Cupidon."""
+        self.lovers = [name1, name2]
+        p1 = self.get_player_by_name(name1)
+        p2 = self.get_player_by_name(name2)
+    
+        if p1 and p2:
+            p1.is_in_love = True
+            p2.is_in_love = True
+            return f"💘 {name1} et {name2} sont maintenant amoureux !"
+        return "L'amour a échoué..."
+    
+    def get_wolf_target(self):
+        loups_ia = [p for p in self.players if p.role == Role.LOUP and not p.is_human and p.is_alive]
+        proies_possibles = [p for p in self.players if p.role != Role.LOUP and p.is_alive]
+
+        if self.difficulty == "EXPERT":
+            # 1. Priorité : Éliminer les rôles dangereux détectés (Voyante, Sorcière)
+            # On simule ici une IA qui analyse qui a posé des questions ou a été trop pertinent
+            targets_high_priority = [p for p in proies_possibles if p.suspicion_score < 20] 
+        
+            # 2. Stratégie de "Bluff" : Ne pas voter systématiquement pour le même joueur 
+            # que le joueur humain loup pour ne pas créer de groupe suspect
+        if targets_high_priority:
+            return random.choice(targets_high_priority)
+            
+        # Comportement par défaut (Normal / Débutant)
+        return random.choice(proies_possibles)
+    
+    def expert_ai_vote(self, player_ai):
+        if player_ai.role == Role.LOUP:
+            # Un loup expert ne votera JAMAIS contre un autre loup, 
+            # SAUF si ce loup est déjà presque condamné (pour s'auto-innocenter).
+            targets = [p for p in self.get_alive_players() if p.role != Role.LOUP]
+        
+            # Il choisit la cible qui a déjà le plus de votes contre elle parmi les villageois
+            return max(targets, key=lambda p: p.votes_received)
+    
+        return random.choice(self.get_alive_players())
 
         # VÉRIFIEZ QUE CETTE MÉTHODE EXISTE BIEN AVEC CE NOM EXACT
     def _setup_players(self, human_player_name):

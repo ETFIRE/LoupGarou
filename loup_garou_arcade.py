@@ -12,7 +12,9 @@ from dotenv import load_dotenv
 
 # --- NOUVELLES IMPORTATIONS POUR SPEECH-TO-TEXT ---
 import speech_recognition as sr
-import threading # Nécessaire pour l'écoute non bloquante
+import threading
+
+import player # Nécessaire pour l'écoute non bloquante
 # --------------------------------------------------
 
 # Charger les variables d'environnement (y compris GROQ_API_KEY)
@@ -215,6 +217,12 @@ class LoupGarouGame(arcade.Window):
         self.menu_human_name = "Lucie"
         self.menu_num_players = 11
         self.name_input_active = False
+
+        self.difficulty_levels = ["DEBUTANT", "NORMAL", "EXPERT"]
+        self.menu_diff_index = 1  # "NORMAL" par défaut
+
+        self.btn_diff_prev = MenuButton(0, 0, 40, 40, "<", "DIFF_PREV")
+        self.btn_diff_next = MenuButton(0, 0, 40, 40, ">", "DIFF_NEXT")
         
         self.available_roles = 0  # Par défaut : ALEATOIRE
         
@@ -252,6 +260,7 @@ class LoupGarouGame(arcade.Window):
         # --- ACTIONS SPÉCIALES ---
         self.cupid_targets = []
         self.cupid_selection_buttons = []
+        self.cupid_indicators = arcade.SpriteList()
 
         # --- PARAMÈTRES DU DÉBAT ---
         self.debate_timer = 60 
@@ -582,6 +591,15 @@ class LoupGarouGame(arcade.Window):
             if self.btn_role_prev.check_click(x, y):
                 self.menu_role_index = (self.menu_role_index - 1) % len(self.available_roles)
                 return
+            
+            # Clics Difficulté
+            if self.btn_diff_next.check_click(x, y):
+                self.menu_diff_index = (self.menu_diff_index + 1) % len(self.difficulty_levels)
+                return
+
+            if self.btn_diff_prev.check_click(x, y):
+                self.menu_diff_index = (self.menu_diff_index - 1) % len(self.difficulty_levels)
+                return
 
             # --- FOCUS NOM ---
             cx, cy = self.width / 2, self.height / 2
@@ -596,6 +614,15 @@ class LoupGarouGame(arcade.Window):
 
             # --- LANCEMENT UNIQUE ---
             if self.start_button.check_click(x, y):
+
+                diff_choisie = self.difficulty_levels[self.menu_diff_index]
+    
+                # On passe la difficulté au GameManager
+                self.game_manager = GameManager(
+                human_player_name=self.menu_human_name,
+                num_players_total=self.menu_num_players,
+                difficulty=diff_choisie # <--- Nouveau paramètre
+                )
                 selected_role = self.available_roles[self.menu_role_index]
 
                 if selected_role == "ALEATOIRE":
@@ -603,12 +630,6 @@ class LoupGarouGame(arcade.Window):
                     selected_role = random.choice(self.available_roles[1:])
                 else:
                     selected_role = selected_role
-
-                # Initialisation moteur
-                self.game_manager = GameManager(
-                    human_player_name=self.menu_human_name, 
-                    num_players_total=self.menu_num_players
-                )
                 
                 # Attribution rôle humain et IA
                 self.human_player = self.game_manager.human_player
@@ -659,50 +680,125 @@ class LoupGarouGame(arcade.Window):
                     self.current_state = GameState.VOTING
                     return
                 
-    def _display_cupid_selection_indicators(self):
-        """Dessine un cercle pour les joueurs sélectionnés par Cupidon ET la ligne des amoureux."""
-        
-        # Dessiner la ligne entre les amoureux si la liaison est faite (IA ou Humain)
-        if self.game_manager.lovers and len(self.game_manager.lovers) == 2:
-            name1, name2 = self.game_manager.lovers
+        self._update_cupid_visuals()
+                
+    def _handle_cupid_selection_click(self, x, y):
+        """Gère la sélection des amoureux et valide le lien."""
+        selected_name = None
+        for name, sprite in self.player_map.items():
+            if sprite.collides_with_point((x, y)):
+                selected_name = name
+                break
             
-            # Récupérer les objets Joueur réels pour vérifier l'état
-            player1 = self.game_manager.get_player_by_name(name1)
-            player2 = self.game_manager.get_player_by_name(name2)
-            
-            # Récupérer les Sprites pour le dessin
-            sprite1 = self.player_map.get(name1)
-            sprite2 = self.player_map.get(name2)
-            
-            # Vérifier si les joueurs VIVANTS existent pour dessiner la ligne
-            if (sprite1 and sprite2 and player1 and player2 and 
-                player1.is_alive and player2.is_alive):
-                 # Dessine un lien rose entre les deux sprites vivants
-                 arcade.draw_line(
-                     sprite1.center_x, sprite1.center_y,
-                     sprite2.center_x, sprite2.center_y,
-                     arcade.color.PINK,
-                     line_width=3
-                 )
-
-
-        if self.current_state != GameState.CUPID_ACTION:
+        if not selected_name:
             return
 
-        # Dessiner l'indicateur de sélection pour l'action en cours (CUPID_ACTION)
-        for player_name in self.cupid_targets:
-            sprite = self.player_map.get(player_name)
-            if sprite:
-                # Dessine un indicateur de sélection
-                arcade.draw_circle_outline(
-                    sprite.center_x, 
-                    sprite.center_y, 
-                    sprite.width * 0.6, 
-                    arcade.color.PINK, 
-                    border_width=3
-                )
+        player = self.game_manager.get_player_by_name(selected_name)
+
+        # 1. Sélection du joueur
+        if player and player.is_alive and selected_name not in self.cupid_targets:
+            self.cupid_targets.append(selected_name)
+            self.log_messages.append(f"💘 {selected_name} sélectionné...")
+            self._update_cupid_visuals()
+    
+        # 2. Validation (UNIQUEMENT quand on en a deux)
+        if len(self.cupid_targets) == 2:
+            p1, p2 = self.cupid_targets
+        
+            # Appel au moteur de jeu
+            msg = self.game_manager.bind_lovers(p1, p2)
+            if msg:
+                self.log_messages.append(msg)
+        
+            # Réinitialisation de la sélection
+            self.cupid_targets = []
+            self.game_manager.is_cupid_phase_done = True
+        
+            # Mise à jour des sprites pour afficher la ligne rose
+            self._update_cupid_visuals() 
+        
+            # Transition vers la nuit
+            self.game_manager.day = 1 
+            self._start_night_phase()
                 
-    # --- Logique Speech-to-Text (STT) ---
+    def _update_cupid_visuals(self):
+        """Génère les sprites roses (ligne et cercles) pour remplacer arcade.draw."""
+        self.cupid_indicators.clear()
+        import math
+
+        # 1. LA LIGNE (Lien entre les amoureux)
+        if self.game_manager.lovers and len(self.game_manager.lovers) == 2:
+            n1, n2 = self.game_manager.lovers
+            s1, s2 = self.player_map.get(n1), self.player_map.get(n2)
+            p1, p2 = self.game_manager.get_player_by_name(n1), self.game_manager.get_player_by_name(n2)
+        
+            # TOUT LE BLOC DE CALCUL DOIT ÊTRE DANS LE "IF"
+            if s1 and s2 and p1 and p2 and p1.is_alive and p2.is_alive:
+                # Calcul mathématique pour la ligne
+                dx, dy = s2.center_x - s1.center_x, s2.center_y - s1.center_y
+                distance = math.sqrt(dx**2 + dy**2)
+                angle = math.degrees(math.atan2(dy, dx))
+            
+                # On crée un sprite rectangle très fin (100% Sprite)
+                line = arcade.SpriteSolidColor(int(distance), 4, arcade.color.PINK)
+                line.center_x = (s1.center_x + s2.center_x) / 2
+                line.center_y = (s1.center_y + s2.center_y) / 2
+                line.angle = angle
+                self.cupid_indicators.append(line)
+
+        # 2. LES INDICATEURS DE SÉLECTION (Cadres roses)
+        if self.current_state == GameState.CUPID_ACTION:
+            for name in self.cupid_targets:
+                s = self.player_map.get(name)
+                # Correction de l'indentation ici : le "if s" doit être DANS la boucle for
+                if s:
+                    marker = arcade.SpriteSolidColor(int(s.width + 10), int(s.height + 10), arcade.color.PINK)
+                    marker.position = s.position
+                    marker.alpha = 100 
+                    self.cupid_indicators.append(marker)
+                
+    def _handle_cupid_selection_click(self, x, y):
+        """Gère la sélection des amoureux et valide le lien."""
+        selected_name = None
+
+        # 1. Identifier le joueur cliqué
+        for name, sprite in self.player_map.items():
+            if sprite.collides_with_point((x, y)):
+                selected_name = name
+                break
+            
+        if not selected_name:
+            return 
+
+        player = self.game_manager.get_player_by_name(selected_name)
+
+        # 2. Ajouter à la sélection si valide
+        if player and player.is_alive and selected_name not in self.cupid_targets:
+            self.cupid_targets.append(selected_name)
+            self.log_messages.append(f"💘 {selected_name} sélectionné...")
+            self._update_cupid_visuals()
+    
+        # 3. Validation : UNIQUEMENT quand on a atteint DEUX joueurs
+        if len(self.cupid_targets) == 2:
+            p1, p2 = self.cupid_targets
+        
+            # On crée le lien dans le moteur
+            msg = self.game_manager.bind_lovers(p1, p2)
+        
+            # On affiche le message de confirmation (msg n'existe qu'ici)
+            if msg:
+                self.log_messages.append(msg)
+        
+            # On réinitialise la liste temporaire
+            self.cupid_targets = []
+            self.game_manager.is_cupid_phase_done = True
+        
+            # Mise à jour des sprites pour afficher la ligne rose
+            self._update_cupid_visuals() 
+        
+            # Transition vers la suite du jeu
+            self.game_manager.day = 1 
+            self._start_night_phase()
 
     def _handle_stt_toggle(self):
         """Lance ou arrête l'enregistrement vocal et traite l'audio."""
@@ -830,16 +926,29 @@ class LoupGarouGame(arcade.Window):
         arcade.draw_text("CONFIGURATION", cx, cy + 240, arcade.color.WHITE, 35, anchor_x="center", bold=True)
 
         # --- LIGNE NOM (Y + 160) ---
-        arcade.draw_text(f"Nom : {self.menu_human_name}", cx, cy + 160, arcade.color.CYAN, 22, anchor_x="center")
+        arcade.draw_text(f"Nom : {self.menu_human_name}", cx, cy + 170, arcade.color.CYAN, 22, anchor_x="center")
 
         # --- LIGNE JOUEURS (Y + 60) ---
         # On écarte les boutons de 180 pixels du centre pour laisser le texte respirer
-        arcade.draw_text(f"Nombre de joueurs : {self.menu_num_players}", cx, cy + 60, arcade.color.WHITE, 20, anchor_x="center")
+        arcade.draw_text(f"Nombre de joueurs : {self.menu_num_players}", cx, cy + 90, arcade.color.WHITE, 20, anchor_x="center")
     
-        self.btn_minus.center_x, self.btn_minus.center_y = cx - 180, cy + 65
-        self.btn_plus.center_x, self.btn_plus.center_y = cx + 180, cy + 65
+        self.btn_minus.center_x, self.btn_minus.center_y = cx - 180, cy + 95
+        self.btn_plus.center_x, self.btn_plus.center_y = cx + 180, cy + 95
         self.btn_minus.draw()
         self.btn_plus.draw()
+
+        # --- 3. DIFFICULTÉ (Y + 20) - NOUVEAU ---
+        diff_text = self.difficulty_levels[self.menu_diff_index]
+        diff_color = [arcade.color.GREEN, arcade.color.WHITE, arcade.color.RED][self.menu_diff_index]
+    
+        arcade.draw_text(f"IA : {diff_text}", cx, cy + 10, diff_color, 20, anchor_x="center")
+    
+        # Réutilisez vos boutons existants ou créez-en des nouveaux pour la difficulté
+        # Ici on suppose que vous avez btn_diff_prev et btn_diff_next
+        self.btn_diff_prev.center_x, self.btn_diff_prev.center_y = cx - 140, cy + 15
+        self.btn_diff_next.center_x, self.btn_diff_next.center_y = cx + 140, cy + 15
+        self.btn_diff_prev.draw()
+        self.btn_diff_next.draw()
 
         # --- LIGNE RÔLE (Y - 40) ---
         # On descend la ligne à Y-40 pour éviter le chevauchement avec la ligne du dessus
@@ -853,9 +962,6 @@ class LoupGarouGame(arcade.Window):
             role_color = arcade.color.GOLD
 
         arcade.draw_text(f"Rôle souhaité : {role_name}", cx, cy - 40, role_color, 20, anchor_x="center")
-
-
-        
 
         # Boutons de rôle écartés de 220 pixels
         self.btn_role_prev.center_x, self.btn_role_prev.center_y = cx - 220, cy - 35
@@ -874,6 +980,18 @@ class LoupGarouGame(arcade.Window):
             self._draw_setup_menu() # (votre code actuel de menu)
             return
         
+        # Dessin du décor et des joueurs
+        if self.menu_background_list:
+            self.menu_background_list.draw()
+            self.cupid_indicators.draw()
+        
+    
+        # --- AJOUT SÉCURISÉ ---
+        if hasattr(self, 'cupid_indicators'):
+            self.cupid_indicators.draw()
+
+        self.player_sprites.draw()
+
         if self.game_manager is None or self.human_player is None:
             return
     
@@ -934,10 +1052,6 @@ class LoupGarouGame(arcade.Window):
                          "M", sprite.center_x + 30, sprite.center_y + 60, 
                          arcade.color.GOLD, 14, anchor_x="center"
                      )
-
-
-        # Afficher l'indicateur de sélection Cupidon et le lien d'amour (Ceci dessine aussi la ligne rose)
-        self._display_cupid_selection_indicators()
         
         self.player_sprites.draw()
         
@@ -1013,54 +1127,48 @@ class LoupGarouGame(arcade.Window):
 
 
     def on_update(self, delta_time):
-        """Logique : appelé à chaque image pour mettre à jour l'état."""
-        
-        if self.current_state in [GameState.SETUP, GameState.CUPID_ACTION, GameState.NIGHT_HUMAN_ACTION]:
+        """Logique : mis à jour à chaque image."""
+    
+        # 1. Mise à jour visuelle (TOUJOURS, sauf dans le setup)
+        # On le place AVANT le return pour que le trait de liaison se mette à jour
+        if self.current_state != GameState.SETUP:
+            self._update_cupid_visuals()
+
+        # 2. On ne sort que pour le SETUP. 
+        # On laisse CUPID_ACTION et NIGHT_HUMAN_ACTION continuer pour que les timers ou visuels tournent.
+        if self.current_state == GameState.SETUP:
             return
 
-        # GESTION ASYNCHRONE DE LA NUIT IA POUR ÉVITER LE LAG
+        # 3. GESTION DE LA NUIT IA
         if self.current_state == GameState.NIGHT_IA_ACTION:
             if not self.night_processing:
-                self.night_processing = True # Bloque le déclenchement de multiples threads
+                self.night_processing = True 
                 thread = threading.Thread(target=self._async_night_ai, daemon=True)
                 thread.start()
-
+        # 4. GESTION DU DÉBAT
         elif self.current_state == GameState.DEBATE:
             self._update_debate(delta_time) 
-        
+    
+        # 5. GESTION DES VOTES
         elif self.current_state == GameState.VOTING:
-            # On récupère le dictionnaire des votes avant qu'il ne soit vidé par _lynch_result
+            # (Votre logique de lynchage actuelle...)
             if self.game_manager.vote_counts:
-            # Trouver qui a reçu le plus de votes (identique à la logique interne du GameManager)
                 lynch_target_name = max(self.game_manager.vote_counts, key=self.game_manager.vote_counts.get)
                 target_player = self.game_manager.get_player_by_name(lynch_target_name)
+                lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players())
+                self.log_messages.append(lynch_message)
+                self.current_state = GameState.RESULT
 
-            # Exécuter le lynchage et obtenir le message
-            lynch_message = self.game_manager._lynch_result(self.game_manager.get_alive_players())
-            self.log_messages.append(lynch_message)
-
-            # Vérifier si la mort a eu lieu et si ce n'était pas un loup
-            if "mort(e)" in lynch_message and target_player:
-                # On vérifie le camp du rôle (Camp.VILLAGE)
-                if target_player.role.camp == Camp.VILLAGE:
-                    if self.sound_villager_death:
-                        arcade.play_sound(self.sound_villager_death)
-    
-            self.current_state = GameState.RESULT
-        
+        # 6. GESTION DES RÉSULTATS ET PASSAGE À LA NUIT SUIVANTE
         elif self.current_state == GameState.RESULT:
             winner = self.game_manager.check_win_condition()
             if winner:
                 self.log_messages.append(f"\n🎉 VICTOIRE des {winner.value} !")
                 self.current_state = GameState.GAME_OVER
             else:
-            # TRÈS IMPORTANT : Réinitialiser night_processing ici
                 self.night_processing = False 
-                self.game_manager.day += 1
-                self.log_messages.append(f"\n🌙 NUIT {self.game_manager.day} : Le village s'endort...") 
+                # On ne change pas le jour ici, _start_night_phase s'en chargera
                 self._start_night_phase()
-        
-    # --- LOGIQUE D'ACTION HUMAINE DE NUIT ---
 
     def _display_human_night_action_buttons(self):
         """Prépare les boutons d'action de nuit pour la Voyante/Sorcière/Salvateur humain."""
