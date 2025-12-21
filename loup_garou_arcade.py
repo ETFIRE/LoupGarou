@@ -549,6 +549,13 @@ class LoupGarouGame(arcade.Window):
 
     def on_mouse_press(self, x, y, button, modifiers):
         """Gère le clic de la souris selon l'état du jeu."""
+
+        # PRIORITÉ 1 : Le Chat 
+        if self.current_state == GameState.DEBATE and self.human_player.is_alive:
+            # On vérifie si on clique sur le champ, le bouton envoyer ou le bouton STT
+            self.chat_input.check_click(x, y)
+            if self.chat_input.active:
+                return 
         
         if self.current_state == GameState.SETUP:
             if self.btn_plus.check_click(x, y):
@@ -910,6 +917,9 @@ class LoupGarouGame(arcade.Window):
 
         # --- 2. SAISIE DU CHAT PENDANT LE DÉBAT ---
         if self.chat_input.active:
+            if symbol == arcade.key.ESCAPE: # Permet de sortir du chat
+                self.chat_input.active = False
+                return
             self.chat_input.handle_key_press(symbol, modifiers)
             return
     
@@ -999,14 +1009,13 @@ class LoupGarouGame(arcade.Window):
             self._draw_setup_menu()
             return
         
+        if self.game_manager is None or self.human_player is None:
+            return
+        
         # Dessin du décor et des joueurs
         if self.menu_background_list:
             self.menu_background_list.draw()
             self.cupid_indicators.draw()
-        
-
-        if self.game_manager is None or self.human_player is None:
-            return
     
         self.btn_minus.draw()
         self.btn_plus.draw()
