@@ -372,15 +372,28 @@ class GameManager:
         return [{'name': p.name, 'is_alive': p.is_alive} for p in self.players]
 
     def check_win_condition(self):
-        """Vérifie si un camp a gagné."""
-        alive = self.get_alive_players()
-        wolves = sum(1 for p in alive if p.role.camp == Camp.LOUP)
-        villagers = sum(1 for p in alive if p.role.camp == Camp.VILLAGE)
-        
-        if wolves == 0:
-            return Camp.VILLAGE
-        if wolves >= villagers:
-            return Camp.LOUP
+        """
+        Vérifie les conditions de victoire.
+        - Villageois gagnent si tous les loups sont morts.
+        - Loups gagnent si leur nombre est supérieur ou égal au nombre de villageois.
+        """
+        alive_players = self.get_alive_players() #
+    
+        # Compter les survivants par camp
+        wolves = [p for p in alive_players if p.role.camp == Camp.LOUP] #
+        villagers = [p for p in alive_players if p.role.camp == Camp.VILLAGEOIS] #
+    
+        num_wolves = len(wolves) #
+        num_villagers = len(villagers) #
+
+        # Condition 1 : Plus aucun loup
+        if num_wolves == 0: #
+            return Camp.VILLAGEOIS #
+
+        # Condition 2 : Autant de loups que de villageois (ou plus)
+        if num_wolves >= num_villagers: #
+            return Camp.LOUP #
+
         return None
         
     # --- Logique de Mort Centralisée ---
