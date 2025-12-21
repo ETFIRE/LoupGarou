@@ -708,7 +708,7 @@ class LoupGarouGame(arcade.Window):
             self._start_night_phase()
                 
     def _update_cupid_visuals(self):
-        """Génère les sprites roses (ligne et cercles) pour remplacer arcade.draw."""
+        """Positionne précisément le trait et les textes UwU."""
         self.cupid_indicators.clear()
         import math
 
@@ -718,24 +718,20 @@ class LoupGarouGame(arcade.Window):
             p1, p2 = self.game_manager.get_player_by_name(n1), self.game_manager.get_player_by_name(n2)
         
             if s1 and s2 and p1 and p2 and p1.is_alive and p2.is_alive:
-                dx, dy = s2.center_x - s1.center_x, s2.center_y - s1.center_y
-                distance = math.sqrt(dx**2 + dy**2)
-                angle = math.degrees(math.atan2(dy, dx))
-            
-                line = arcade.SpriteSolidColor(int(distance), 4, arcade.color.PINK)
-                line.center_x = (s1.center_x + s2.center_x) / 2
-                line.center_y = (s1.center_y + s2.center_y) / 2
-                line.angle = angle
-                self.cupid_indicators.append(line)
+                
+                # 2. TEXTES : On les monte à +85 pour éviter la superposition
+                for s in [s1, s2]:
+                    # Le texte "UwU"
+                    uwu = arcade.create_text_sprite(text="UwU", color=arcade.color.RED, font_size=14)
+                    uwu.center_x = s.center_x - 15
+                    uwu.center_y = s.center_y + 85  # Augmenté pour être au-dessus du nom
+                    self.cupid_indicators.append(uwu)
 
-        if self.current_state == GameState.CUPID_ACTION:
-            for name in self.cupid_targets:
-                s = self.player_map.get(name)
-                if s:
-                    marker = arcade.SpriteSolidColor(int(s.width + 10), int(s.height + 10), arcade.color.PINK)
-                    marker.position = s.position
-                    marker.alpha = 100 
-                    self.cupid_indicators.append(marker)
+                    # Le coeur
+                    heart = arcade.create_text_sprite(text="❤️", color=arcade.color.RED, font_size=18)
+                    heart.center_x = s.center_x + 20
+                    heart.center_y = s.center_y + 85
+                    self.cupid_indicators.append(heart)
                 
     def _handle_cupid_selection_click(self, x, y):
         """Gère la sélection des amoureux et valide le lien."""
@@ -949,11 +945,6 @@ class LoupGarouGame(arcade.Window):
             self.menu_background_list.draw()
             self.cupid_indicators.draw()
         
-    
-        if hasattr(self, 'cupid_indicators'):
-            self.cupid_indicators.draw()
-
-        self.player_sprites.draw()
 
         if self.game_manager is None or self.human_player is None:
             return
@@ -975,6 +966,11 @@ class LoupGarouGame(arcade.Window):
             self.campfire_sprite.center_x = self.width / 2
             self.campfire_sprite.center_y = self.height / 2 - 100 
             self.campfire_list.draw()
+
+        if hasattr(self, 'cupid_indicators'):
+            self.cupid_indicators.draw()
+
+        self.player_sprites.draw()
 
 
         human_is_wolf = (self.human_player.role and self.human_player.role.camp == Camp.LOUP)
