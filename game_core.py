@@ -1,26 +1,22 @@
 # game_core.py
 
-# -*- coding: utf-8 -*-
 import random
 import time 
 import os 
 from collections import defaultdict 
 import json 
-
-# --- Importations de base ---
 from enums_and_roles import Camp, NightAction, Role 
-# ASSUMPTION: La classe ChatAgent existe et est importable
+
 try:
     from chat_agent import ChatAgent
 except ImportError:
-    # Classe factice pour éviter l'erreur si ChatAgent n'est pas dans le même répertoire
     class ChatAgent(object):
-        # La méthode __init__ DOIT correspondre à ce qui est appelé dans _create_player_instance.
         def __init__(self, name, personality_context_path):
             self.name = name
             self.is_human = False
             self.role = None
             self.is_alive = True
+            self.has_acted_this_night = False
             self.has_kill_potion = False
             self.has_life_potion = False
             self.wolf_teammates = []
@@ -90,8 +86,8 @@ class GameManager:
     
     DEBATE_TIME_LIMIT = 20
     
-    def __init__(self, human_player_name="Lucie", num_players_total=11):
-        
+    def __init__(self, human_player_name="Lucie", num_players_total=11, difficulty="NORMAL"):
+        self.difficulty = difficulty
         self.day = 0
         self.players = [] 
         self.num_players_total = num_players_total
@@ -129,6 +125,46 @@ class GameManager:
         self.night_kill_target = None 
         self.night_protected_target = None 
         # -----------------------------------
+
+    def bind_lovers(self, name1, name2):
+        """Lie deux joueurs par le pouvoir de Cupidon."""
+        self.lovers = [name1, name2]
+        p1 = self.get_player_by_name(name1)
+        p2 = self.get_player_by_name(name2)
+    
+        if p1 and p2:
+            p1.is_in_love = True
+            p2.is_in_love = True
+            return f"💘 {name1} et {name2} sont maintenant amoureux !"
+        return "L'amour a échoué..."
+    
+    def get_wolf_target(self):
+        loups_ia = [p for p in self.players if p.role == Role.LOUP and not p.is_human and p.is_alive]
+        proies_possibles = [p for p in self.players if p.role != Role.LOUP and p.is_alive]
+
+        if self.difficulty == "EXPERT":
+            # 1. Priorité : Éliminer les rôles dangereux détectés (Voyante, Sorcière)
+            # On simule ici une IA qui analyse qui a posé des questions ou a été trop pertinent
+            targets_high_priority = [p for p in proies_possibles if p.suspicion_score < 20] 
+        
+            # 2. Stratégie de "Bluff" : Ne pas voter systématiquement pour le même joueur 
+            # que le joueur humain loup pour ne pas créer de groupe suspect
+        if targets_high_priority:
+            return random.choice(targets_high_priority)
+            
+        # Comportement par défaut (Normal / Débutant)
+        return random.choice(proies_possibles)
+    
+    def expert_ai_vote(self, player_ai):
+        if player_ai.role == Role.LOUP:
+            # Un loup expert ne votera JAMAIS contre un autre loup, 
+            # SAUF si ce loup est déjà presque condamné (pour s'auto-innocenter).
+            targets = [p for p in self.get_alive_players() if p.role != Role.LOUP]
+        
+            # Il choisit la cible qui a déjà le plus de votes contre elle parmi les villageois
+            return max(targets, key=lambda p: p.votes_received)
+    
+        return random.choice(self.get_alive_players())
 
         # VÉRIFIEZ QUE CETTE MÉTHODE EXISTE BIEN AVEC CE NOM EXACT
     def _setup_players(self, human_player_name):
@@ -202,7 +238,6 @@ class GameManager:
             # Création du chemin de contexte unique pour chaque IA
             context_path = os.path.join("context", f"{name.replace(' ', '_').lower()}.txt") 
             
-            # S'assurer que le fichier de contexte existe
             if not os.path.exists("context"):
                 os.makedirs("context")
                 
@@ -210,7 +245,6 @@ class GameManager:
                  with open(context_path, "w", encoding="utf-8") as f:
                     f.write(f"Tu es l'IA {name}. Ton rôle est d'être un joueur de Loup Garou. Réponds de manière concise.")
             
-            # Appel Corrigé : Passe 'name' et l'argument obligatoire 'personality_context_path'
             return ChatAgent(name, personality_context_path=context_path) 
 
 
@@ -226,12 +260,11 @@ class GameManager:
             Role.CUPIDON, Role.MAIRE, Role.SALVATEUR, Role.ANCIEN
         ]
     
-        # Si on a plus de 10 joueurs, on peut ajouter un 3ème loup comme dans votre version originale
+        # Si on a plus de 10 joueurs, on peut ajouter un 3ème loup
         if self.num_players_total >= 11:
             roles_list.append(Role.LOUP)
 
         # 3. Calculer combien de places il reste pour atteindre le total
-        # (Total - Loups déjà mis)
         remaining_slots = self.num_players_total - len(roles_list)
     
         # 4. Remplir avec les rôles spéciaux jusqu'à ce qu'il ne reste que 4 places (pour les villageois obligatoires)
@@ -470,7 +503,7 @@ class GameManager:
         for priority in sorted_priorities:
             for player in actions_by_priority[priority]:
             
-                # A. Logique VOYANTE (INVESTIGATE) - Priorité 20
+                # A. Logique VOYANTE
                 if player.role.night_action == NightAction.INVESTIGATE and not player.is_human:
                     target_name = player.decide_night_action(alive)
                     target = self.get_player_by_name(target_name)
@@ -480,12 +513,11 @@ class GameManager:
                             "content": f"Tu as vu que {target.name} est un(e) {target.role.name} ({target.role.camp.value})."
                         })
             
-                # B. Logique SALVATEUR (PROTECT) - Priorité 25
+                # B. Logique SALVATEUR
                 elif player.role.night_action == NightAction.PROTECT:
                     target_name = None
                 
                     if player.is_human:
-                        # On récupère le choix stocké via l'interface
                         target_name = getattr(self, 'human_choice', None)
                     else:
                         # IA : On cherche une cible valide (pas celle de la nuit précédente)
@@ -496,7 +528,6 @@ class GameManager:
 
                     # Validation et application de la protection
                     if target_name:
-                        # Double vérification de la règle (surtout pour l'humain)
                         if target_name != getattr(player, 'last_protected_target', None):
                             self.night_protected_target = target_name
                             player.last_protected_target = target_name
@@ -504,7 +535,7 @@ class GameManager:
                             # Si l'humain a triché ou erreur : pas de protection cette nuit
                             pass
 
-                # C. Logique LOUPS (KILL) - Priorité 30
+                # C. Logique LOUPS
                 elif player.role.night_action == NightAction.KILL and player.role.camp == Camp.LOUP:
                     if not self.night_kill_target:
                         if not player.is_human:
@@ -522,7 +553,7 @@ class GameManager:
                 night_messages.append(f"🛡️ **{kill_target.name}** a été attaqué(e) mais **sauvé(e) par le Salvateur** !")
                 kill_target = None # On annule la mort
             else:
-                # Logique SORCIERE (POTION) - Priorité 40
+                # Logique SORCIERE
                 sorciere = self.get_player_by_role(Role.SORCIERE)
                 if sorciere and sorciere.is_alive:
                     # Sorcière IA
@@ -586,10 +617,9 @@ class GameManager:
 
     def _lynch_result(self, alive_players):
         if not self.vote_counts:
-            # Sécurité pour éviter le crash de max() sur un dictionnaire vide
             return "Le village n'a pas réussi à se mettre d'accord. Personne n'est lynché."
 
-        # --- LOGIQUE MAIRE (Double Vote) ---
+        # LOGIQUE MAIRE
         mayor_player = self.get_player_by_role(Role.MAIRE)
         mayor_name = mayor_player.name if mayor_player and mayor_player.is_alive else None
         

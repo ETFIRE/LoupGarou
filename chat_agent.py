@@ -1,4 +1,3 @@
-# chat_agent.py
 
 from groq import Groq
 from dotenv import load_dotenv
@@ -11,7 +10,6 @@ from enum import Enum
 from enums_and_roles import Camp, NightAction, Role 
 
 
-# NOTE: Cette classe doit correspondre à la structure de Player/ChatAgent dans game_core.py
 class Player:
     def __init__(self, name, is_human=False):
         self.name = name
@@ -43,7 +41,6 @@ class ChatAgent(Player):
     
     def __init__(self, name, personality_context_path, is_human=False):
         
-        # L'appel à super().__init__ initialise déjà tous les attributs de Player
         super().__init__(name, is_human)
         
         if "GROQ_KEY" not in os.environ:
@@ -149,7 +146,6 @@ class ChatAgent(Player):
          except Exception as e:
              print(f"Erreur GROQ API (Décision) : {e}")
              # Retourne une cible aléatoire en cas d'erreur de l'API
-             # Ceci nécessite l'accès à la liste des joueurs (non implémenté ici, donc un nom factice)
              return "Alice" 
 
     def decide_night_action(self, alive_players):
