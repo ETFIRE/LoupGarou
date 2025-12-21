@@ -196,6 +196,10 @@ class LoupGarouGame(arcade.Window):
         self.menu_num_players = 11
         self.name_input_active = False
 
+        self.menu_num_wolves = 3  # Valeur par défaut
+        self.btn_wolf_plus = MenuButton(0, 0, 40, 40, "+", "WOLF_PLUS")
+        self.btn_wolf_minus = MenuButton(0, 0, 40, 40, "-", "WOLF_MINUS")
+
         self.difficulty_levels = ["DEBUTANT", "NORMAL", "EXPERT"]
         self.menu_diff_index = 1  # "NORMAL" par défaut
 
@@ -550,6 +554,14 @@ class LoupGarouGame(arcade.Window):
             if self.btn_minus.check_click(x, y):
                 self.menu_num_players = max(6, self.menu_num_players - 1)
                 return
+            
+            if self.btn_wolf_plus.check_click(x, y):
+                self.menu_num_wolves = min(self.menu_num_players // 2, self.menu_num_wolves + 1)
+                return
+            if self.btn_wolf_minus.check_click(x, y):
+                self.menu_num_wolves = max(1, self.menu_num_wolves - 1)
+                return
+
             if self.btn_role_next.check_click(x, y):
                 self.menu_role_index = (self.menu_role_index + 1) % len(self.available_roles)
                 return
@@ -564,6 +576,11 @@ class LoupGarouGame(arcade.Window):
             if self.btn_diff_prev.check_click(x, y):
                 self.menu_diff_index = (self.menu_diff_index - 1) % len(self.difficulty_levels)
                 return
+            
+            if self.btn_wolf_plus.check_click(x, y):
+                self.menu_num_wolves = min(self.menu_num_players // 2, self.menu_num_wolves + 1)
+            if self.btn_wolf_minus.check_click(x, y):
+                self.menu_num_wolves = max(1, self.menu_num_wolves - 1)
 
             cx, cy = self.width / 2, self.height / 2
             self.btn_minus.center_x, self.btn_minus.center_y = cx - 180, cy + 65
@@ -581,14 +598,13 @@ class LoupGarouGame(arcade.Window):
     
                 # On passe la difficulté au GameManager
                 self.game_manager = GameManager(
-                human_player_name=self.menu_human_name,
-                num_players_total=self.menu_num_players,
-                difficulty=diff_choisie # <--- Nouveau paramètre
+                    human_player_name=self.menu_human_name,
+                    num_players_total=self.menu_num_players,
+                    difficulty=diff_choisie # <--- Nouveau paramètre
                 )
-                selected_role = self.available_roles[self.menu_role_index]
 
+                selected_role = self.available_roles[self.menu_role_index]
                 if selected_role == "ALEATOIRE":
-                    # On exclut le premier index qui est "ALEATOIRE"
                     selected_role = random.choice(self.available_roles[1:])
                 else:
                     selected_role = selected_role
@@ -596,7 +612,10 @@ class LoupGarouGame(arcade.Window):
                 # Attribution rôle humain et IA
                 self.human_player = self.game_manager.human_player
                 self.human_player.assign_role(selected_role)
-                self.game_manager._distribute_roles_after_human_choice(selected_role)
+                self.game_manager._distribute_roles_after_human_choice(
+                    selected_role, 
+                    num_wolves_chosen=self.menu_num_wolves
+                )
 
                 # Mise en place interface
                 self._setup_sprites()
@@ -606,6 +625,7 @@ class LoupGarouGame(arcade.Window):
                     arcade.play_sound(self.sound_start_game) 
                 
                 self.start_game_loop()
+
 
                 # Gestion Cupidon
                 cupidon = self.game_manager.get_player_by_role(Role.CUPIDON)
@@ -709,7 +729,10 @@ class LoupGarouGame(arcade.Window):
             self._start_night_phase()
                 
     def _update_cupid_visuals(self):
-        """Positionne précisément le trait et les textes UwU."""
+        
+        if self.game_manager is None:
+            return
+        
         self.cupid_indicators.clear()
 
         # --- 1. CROIX ROUGE POUR TOUS LES MORTS ---
@@ -917,6 +940,12 @@ class LoupGarouGame(arcade.Window):
         arcade.draw_text(f"Nom : {self.menu_human_name}", cx, cy + 170, arcade.color.CYAN, 22, anchor_x="center")
 
         arcade.draw_text(f"Nombre de joueurs : {self.menu_num_players}", cx, cy + 90, arcade.color.WHITE, 20, anchor_x="center")
+
+        arcade.draw_text(f"Nombre de Loups : {self.menu_num_wolves}", cx, cy + 50, arcade.color.RED, 20, anchor_x="center")
+        self.btn_wolf_minus.center_x, self.btn_wolf_minus.center_y = cx - 180, cy + 55
+        self.btn_wolf_plus.center_x, self.btn_wolf_plus.center_y = cx + 180, cy + 55
+        self.btn_wolf_minus.draw()
+        self.btn_wolf_plus.draw()
     
         self.btn_minus.center_x, self.btn_minus.center_y = cx - 180, cy + 95
         self.btn_plus.center_x, self.btn_plus.center_y = cx + 180, cy + 95
@@ -993,42 +1022,35 @@ class LoupGarouGame(arcade.Window):
 
 
         human_is_wolf = (self.human_player.role and self.human_player.role.camp == Camp.LOUP)
-        wolf_teammates = self.human_player.wolf_teammates
+        wolf_teammates = getattr(self.human_player, 'wolf_teammates', [])
         
         # 3. Dessiner les joueurs et la Spritelist
         for player in self.game_manager.players:
-             sprite = self.player_map.get(player.name)
-             if sprite:
-                 color = arcade.color.WHITE
+            sprite = self.player_map.get(player.name)
+            if sprite:
+                color = arcade.color.WHITE # Par défaut
+            
+            if not player.is_alive:
+                color = arcade.color.RED # Mort
+            elif human_is_wolf:
+                # Si l'humain est loup, on colorie l'humain et ses alliés en Jaune
+                if player.is_human or player.name in wolf_teammates:
+                    color = arcade.color.YELLOW
                  
-                 # GESTION DE LA MORT
-                 if not player.is_alive:
-                     color = arcade.color.RED
-                     sprite.alpha = 100
-                 else:
-                     sprite.alpha = 255
-                     
-                 # Mise en couleur des Loups alliés
-                 if human_is_wolf and player.name in wolf_teammates:
-                     color = arcade.color.YELLOW
-                 
-                 # Dessiner le nom et le statut
-                 arcade.draw_text(
+                arcade.draw_text(
                      f"{player.name} ({'IA' if not player.is_human else 'H'})",
                      sprite.center_x, sprite.center_y + 60, color, 12, anchor_x="center"
-                 )
+                )
                  
-                 # Affichage du rôle si la partie est terminée OU si c'est le joueur humain (pour référence)
-                 if self.current_state == GameState.GAME_OVER or player.is_human:
+                if self.current_state == GameState.GAME_OVER or player.is_human:
                      role_text = f"Role: {player.role.name}"
                      arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
                  
-                 # Indicateur pour le Maire (M)
-                 if player.role == Role.MAIRE and player.is_alive:
+                if player.role == Role.MAIRE and player.is_alive:
                      arcade.draw_text(
                          "M", sprite.center_x + 30, sprite.center_y + 60, 
                          arcade.color.GOLD, 14, anchor_x="center"
-                     )
+                    )
         
         self.player_sprites.draw()
         
