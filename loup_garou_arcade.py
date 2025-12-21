@@ -216,6 +216,8 @@ class LoupGarouGame(arcade.Window):
         self.menu_num_players = 11
         self.name_input_active = False
         
+        self.available_roles = 0  # Par défaut : ALEATOIRE
+        
         # Initialisation des boutons de réglage du menu
         self.btn_plus = MenuButton(0, 0, 40, 40, "+", "PLUS")
         self.btn_minus = MenuButton(0, 0, 40, 40, "-", "MINUS")
@@ -275,10 +277,11 @@ class LoupGarouGame(arcade.Window):
 
         # --- NOUVEAU : Sélection du rôle ---
         self.available_roles = [
+            "ALEATOIRE",
             Role.VILLAGEOIS, Role.LOUP, Role.VOYANTE, Role.SORCIERE, 
             Role.CHASSEUR, Role.CUPIDON, Role.SALVATEUR, Role.ANCIEN
         ]
-        self.menu_role_index = 0  # Par défaut : Villageois
+        self.menu_role_index = 0  # 
         self.btn_role_next = MenuButton(0, 0, 40, 40, ">", "NEXT_ROLE")
         self.btn_role_prev = MenuButton(0, 0, 40, 40, "<", "PREV_ROLE")
 
@@ -594,7 +597,13 @@ class LoupGarouGame(arcade.Window):
             # --- LANCEMENT UNIQUE ---
             if self.start_button.check_click(x, y):
                 selected_role = self.available_roles[self.menu_role_index]
-                
+
+                if selected_role == "ALEATOIRE":
+                    # On exclut le premier index qui est "ALEATOIRE"
+                    selected_role = random.choice(self.available_roles[1:])
+                else:
+                    selected_role = selected_role
+
                 # Initialisation moteur
                 self.game_manager = GameManager(
                     human_player_name=self.menu_human_name, 
@@ -835,10 +844,19 @@ class LoupGarouGame(arcade.Window):
         # --- LIGNE RÔLE (Y - 40) ---
         # On descend la ligne à Y-40 pour éviter le chevauchement avec la ligne du dessus
         current_role = self.available_roles[self.menu_role_index]
-        role_name = current_role.value["name"]
-    
-        arcade.draw_text(f"Rôle souhaité : {role_name}", cx, cy - 40, arcade.color.GOLD, 20, anchor_x="center")
-    
+
+        if isinstance(current_role, str) and current_role == "ALEATOIRE":
+            role_name = "🎲 Aléatoire"
+            role_color = arcade.color.LIGHT_SKY_BLUE
+        else:
+            role_name = current_role.value["name"]
+            role_color = arcade.color.GOLD
+
+        arcade.draw_text(f"Rôle souhaité : {role_name}", cx, cy - 40, role_color, 20, anchor_x="center")
+
+
+        
+
         # Boutons de rôle écartés de 220 pixels
         self.btn_role_prev.center_x, self.btn_role_prev.center_y = cx - 220, cy - 35
         self.btn_role_next.center_x, self.btn_role_next.center_y = cx + 220, cy - 35
