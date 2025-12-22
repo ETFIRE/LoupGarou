@@ -889,11 +889,14 @@ class LoupGarouGame(arcade.Window):
 
     def _draw_setup_menu(self):
         """Dessine le menu avec un espacement horizontal et vertical aéré."""
-        # 1. Fond (Sprites)
-        if len(self.menu_background_list) > 0:
+        if hasattr(self, 'menu_bg_sprite'):
+            self.menu_bg_sprite.width = self.width
+            self.menu_bg_sprite.height = self.height
+            self.menu_bg_sprite.center_x = self.width / 2
+            self.menu_bg_sprite.center_y = self.height / 2
             self.menu_background_list.draw()
-
         cx, cy = self.width / 2, self.height / 2
+        
         # --- TITRE ---
         arcade.draw_text("CONFIGURATION", cx, cy + 240, arcade.color.WHITE, 35, anchor_x="center", bold=True)
 
@@ -945,109 +948,87 @@ class LoupGarouGame(arcade.Window):
         self.btn_chaos.draw()
 
     def on_draw(self):
-        """Affichage : appelé à chaque image pour dessiner."""
+        """Fonction de rendu principale : organise l'ordre des calques."""
         self.clear()
-        
+    
+        # 1. ÉTAT SETUP : Menu de configuration uniquement
         if self.current_state == GameState.SETUP:
             self._draw_setup_menu()
             return
-        
+
+        # 2. SÉCURITÉ : Vérification de l'existence du moteur
         if self.game_manager is None or self.human_player is None:
             return
-        
-        # Dessin du décor et des joueurs
-        if self.menu_background_list:
-            self.menu_background_list.draw()
-            self.cupid_indicators.draw()
     
-        self.btn_minus.draw()
-        self.btn_plus.draw()
-        self.start_button.draw()
+        # 3. ÉTAPE DE JEU : Dessin par couches (du bas vers le haut)
+        self._draw_background_layer()    # Fond et décor
+        self._draw_game_elements()       # Sprites, indicateurs, croix
+        self._draw_player_labels_layer() # Noms, rôles et badges
+        self._draw_ui_overlay_layer()    # Log, status et bulles de chat
+        self._draw_interactive_layer()   # Chat input et boutons (Priorité clic)
 
-        # --- 1. DESSIN DU FOND D'ÉCRAN via SPRITELIST ---
+    def _draw_background_layer(self):
+        """Dessine le décor de fond et le feu de camp parfaitement centrés."""
         if self.background_sprite:
             self.background_sprite.width = self.width
             self.background_sprite.height = self.height
             self.background_sprite.center_x = self.width / 2
             self.background_sprite.center_y = self.height / 2
-            self.background_list.draw() 
-        
-        # --- 2. DESSIN DU FEU DE CAMP AU CENTRE ---
+            self.background_list.draw()
+    
         if self.campfire_sprite:
             self.campfire_sprite.center_x = self.width / 2
-            self.campfire_sprite.center_y = self.height / 2 - 100 
+            self.campfire_sprite.center_y = self.height / 2 - 100
             self.campfire_list.draw()
 
+    def _draw_game_elements(self):
+        """Dessine les avatars des joueurs et les indicateurs (Cupidon, morts)."""
+        self.player_sprites.draw()
         if hasattr(self, 'cupid_indicators'):
             self.cupid_indicators.draw()
 
-        self.player_sprites.draw()
-
-
+    def _draw_player_labels_layer(self):
+        """Affiche les noms colorés et les rôles au-dessus des sprites."""
         human_is_wolf = (self.human_player.role and self.human_player.role.camp == Camp.LOUP)
         wolf_teammates = getattr(self.human_player, 'wolf_teammates', [])
-        
-        # 3. Dessiner les joueurs et la Spritelist
+    
         for player in self.game_manager.players:
             sprite = self.player_map.get(player.name)
             if sprite:
-                color = arcade.color.WHITE # Par défaut
-            
-            if not player.is_alive:
-                color = arcade.color.RED # Mort
-            elif human_is_wolf:
-                # Si l'humain est loup, on colorie l'humain et ses alliés en Jaune
-                if player.is_human or player.name in wolf_teammates:
+                color = arcade.color.WHITE
+                if not player.is_alive:
+                    color = arcade.color.RED
+                elif human_is_wolf and (player.is_human or player.name in wolf_teammates):
                     color = arcade.color.YELLOW
-                 
-                arcade.draw_text(
-                     f"{player.name} ({'IA' if not player.is_human else 'H'})",
-                     sprite.center_x, sprite.center_y + 60, color, 12, anchor_x="center"
-                )
-                 
-                if self.current_state == GameState.GAME_OVER or player.is_human:
-                     role_text = f"Role: {player.role.name}"
-                     arcade.draw_text(role_text, sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
-                 
-                if player.role == Role.MAIRE and player.is_alive:
-                     arcade.draw_text(
-                         "M", sprite.center_x + 30, sprite.center_y + 60, 
-                         arcade.color.GOLD, 14, anchor_x="center"
-                    )
-        
-        self.player_sprites.draw()
-        
-        # --- DESSINER LE CHAT LOCALISÉ ---
-        self.draw_localized_chat_bubble()
+            
+            # Nom
+            arcade.draw_text(f"{player.name}", sprite.center_x, sprite.center_y + 60, color, 12, anchor_x="center")
+            # Rôle (si mort ou fin de partie)
+            if self.current_state == GameState.GAME_OVER or player.is_human:
+                arcade.draw_text(f"Role: {player.role.name}", sprite.center_x, sprite.center_y - 60, arcade.color.YELLOW_GREEN, 10, anchor_x="center")
 
-        # AFFICHAGE DE LA LOGIQUE 
-        self.draw_log()
-        self.draw_status()
-        
-        
-        # Dessiner les boutons d'Action/Vote
+    def _draw_interactive_layer(self):
+        """Dessine les éléments avec lesquels l'utilisateur interagit (Boutons, Chat)."""
+        # 1. Boutons d'action (Vote, Nuit)
         for btn in self.action_buttons:
             btn.draw()
             
-        
-        # Dessiner le champ de chat si en mode DEBATE
+        # 2. Champ de saisie (Chat) : Dessiné en DERNIER pour être au premier plan
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
-            if self.stt_available and self.stt_button:
-                self.stt_button.text = "ARRÊTER" if self.is_listening else "Parler"
+            self.chat_input.draw()
 
-            self.chat_input.draw() # Dessine la boite de chat et les boutons Envoyer/Parler
-            
-            # Afficher l'indicateur d'écoute si le micro est actif
-            if self.is_listening:
-                 arcade.draw_text("EN COURS D'ÉCOUTE...", 
-                                  self.chat_input.x, self.chat_input.y + self.chat_input.height + 5, 
-                                  arcade.color.RED_ORANGE, 12)
-            
-        # AFFICHER LE BOUTON DE DÉMARRAGE si en SETUP
-        if self.current_state == GameState.SETUP:
-            if self.start_button:
-                self.start_button.draw() 
+    def _draw_ui_overlay_layer(self):
+        """
+        Dessine les panneaux d'information et les bulles de chat des IA.
+        Ce calque se situe entre les joueurs et les boutons interactifs.
+        """
+        # 1. Dessiner le Journal de Bord (Historique à gauche)
+        self.draw_log()
 
+        # 2. Dessiner le Panneau de Statut (Loups vivants, Timer à droite)
+        self.draw_status()
+        # 3. Dessiner les bulles de texte au-dessus des têtes des IA qui parlent
+        self.draw_localized_chat_bubble()
 
     # --- MÉTHODE DE DESSIN DU CHAT LOCALISÉ ---
     def draw_localized_chat_bubble(self):
