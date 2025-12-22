@@ -62,8 +62,8 @@ class Player:
         self.is_human = is_human
         self.role = role
         self.is_alive = True
-        self.has_kill_potion = False
-        self.has_life_potion = False
+        self.has_kill_potion = True
+        self.has_life_potion = True
         self.wolf_teammates = [] 
         self.has_hunter_shot = True
         self.last_protected_target = None
@@ -89,7 +89,8 @@ class GameManager:
     def __init__(self, human_player_name="Lucie", num_players_total=11, difficulty="NORMAL"):
         self.difficulty = difficulty
         self.day = 0
-        self.players = [] 
+        self.players = []
+        self.debate_duration = 60 
         self.num_players_total = num_players_total
         
         # Rôles fixes/spéciaux requis pour la partie
@@ -606,6 +607,13 @@ class GameManager:
                     self.last_death_was_by_wolf = True
                 else:
                     self.last_death_was_by_wolf = False
+
+        if self.night_kill_target:
+            victim = self.get_player_by_name(self.night_kill_target)
+            if victim:
+                victim.is_alive = False
+                # On réinitialise pour la nuit suivante
+                self.night_kill_target = None
 
         self._recalculate_wolf_count()
         # On réinitialise les choix humains pour la nuit suivante
