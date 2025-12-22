@@ -89,7 +89,8 @@ class GameManager:
     def __init__(self, human_player_name="Lucie", num_players_total=11, difficulty="NORMAL"):
         self.difficulty = difficulty
         self.day = 0
-        self.players = [] 
+        self.players = []
+        self.debate_duration = 60 
         self.num_players_total = num_players_total
         
         # Rôles fixes/spéciaux requis pour la partie
