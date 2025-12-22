@@ -1182,72 +1182,62 @@ class LoupGarouGame(arcade.Window):
             return
 
     def _handle_human_night_action_click(self, x, y):
-        """Traite le clic du joueur humain sur un bouton d'action de nuit."""
-        
+        """Identifie le bouton cliqué et redirige vers la logique du rôle spécifique."""
         clicked_action_data = None
         for btn in self.action_buttons:
             if btn.check_click(x, y):
                 clicked_action_data = btn.action
                 break
-        
+    
         if not clicked_action_data:
             return
 
         self.action_buttons = [] 
+        role_type = self.human_player.role
+    
+        if role_type == Role.VOYANTE:
+            self._logic_seer_action(clicked_action_data)
+        elif role_type == Role.SORCIERE:
+            self._logic_witch_action(clicked_action_data)
+        elif role_type == Role.SALVATEUR:
+            self._logic_guardian_action(clicked_action_data)
+    
+        self.current_state = GameState.NIGHT_IA_ACTION
+        self.log_messages.append("Résolution des actions IA...")
         
-        if self.human_player.role == Role.VOYANTE and ":" in clicked_action_data:
-            action_type, target_name = clicked_action_data.split(":", 1)
-            target = next((p for p in self.game_manager.players if p.name == target_name), None)
-            
-            if action_type == "ENQUÊTER" and target:
+
+    def _logic_seer_action(self, data):
+        """Traite la révélation d'un rôle par la Voyante."""
+        if ":" in data:
+            _, target_name = data.split(":", 1)
+            target = self.game_manager.get_player_by_name(target_name)
+            if target:
                 if self.sound_seer_power:
                     arcade.play_sound(self.sound_seer_power)
-                target_role = target.role.name
-                target_camp = target.role.camp.value
-                self.log_messages.append(f"🕵️‍♀️ Révélation : {target.name} est un(e) **{target_role}** ({target_camp}).")
-                self.current_state = GameState.NIGHT_IA_ACTION
-                return
-                
-        elif self.human_player.role == Role.SORCIERE and clicked_action_data in ["TUER", "SAUVER", "PASSER"]:
-            
-            if clicked_action_data == "PASSER":
-                self.log_messages.append("Action de nuit passée.")
-            
-            elif clicked_action_data == "TUER" and self.human_player.has_kill_potion:
-                 if self.sound_witch_power:
-                    arcade.play_sound(self.sound_witch_power)
-                 self.human_player.has_kill_potion = False
-                 self.log_messages.append(f"🧪 Sorcière : Potion de mort utilisée. L'impact sera résolu.")
-            
-            elif clicked_action_data == "SAUVER" and self.human_player.has_life_potion:
-                 if self.sound_witch_power:
-                    arcade.play_sound(self.sound_witch_power)
-                 self.human_player.has_life_potion = False
-                 self.log_messages.append(f"💖 Sorcière : Potion de vie utilisée. L'impact sera résolu.")
-            
-            self.current_state = GameState.NIGHT_IA_ACTION
-            return
-            
-        elif self.human_player.role == Role.SALVATEUR and ":" in clicked_action_data:
-            action_type, target_name = clicked_action_data.split(":", 1)
-            target = self.game_manager.get_player_by_name(target_name)
-            
-            if action_type == "PROTÉGER" and target:
-                # Stocker la cible pour que _night_phase l'utilise
-                self.game_manager.night_protected_target = target_name
-                self.human_player.last_protected_target = target_name
-                self.log_messages.append(f"🛡️ Le Salvateur protège **{target.name}** cette nuit.")
-                self.current_state = GameState.NIGHT_IA_ACTION
-                return
-        
-        else:
-             self.log_messages.append("Action invalide ou non supportée.")
-             self.current_state = GameState.NIGHT_IA_ACTION
+                self.log_messages.append(f"🕵️‍♀️ Révélation : {target.name} est **{target.role.name}** ({target.role.camp.value}).")
 
-        if self.current_state == GameState.NIGHT_IA_ACTION:
-             self.log_messages.append("Résolution des actions IA...")
-             self.current_state = GameState.NIGHT_IA_ACTION
-        
+    def _logic_witch_action(self, data):
+        """Enregistre l'utilisation des potions de la Sorcière."""
+        if data == "PASSER":
+            self.log_messages.append("Action de nuit passée.")
+        elif data == "TUER" and self.human_player.has_kill_potion:
+            if self.sound_witch_power:
+                arcade.play_sound(self.sound_witch_power)
+            self.human_player.has_kill_potion = False
+            self.log_messages.append("🧪 Sorcière : Potion de mort utilisée.")
+        elif data == "SAUVER" and self.human_player.has_life_potion:
+            if self.sound_witch_power:
+                arcade.play_sound(self.sound_witch_power)
+            self.human_player.has_life_potion = False
+            self.log_messages.append("💖 Sorcière : Potion de vie utilisée.")
+
+    def _logic_guardian_action(self, data):
+        """Définit la protection du Salvateur pour la nuit en cours."""
+        if ":" in data:
+            _, target_name = data.split(":", 1)
+            self.game_manager.night_protected_target = target_name
+            self.human_player.last_protected_target = target_name
+            self.log_messages.append(f"🛡️ Le Salvateur protège **{target_name}**.")
 
     # --- LOGIQUE D'UPDATE ET D'AFFICHAGE ---
     
