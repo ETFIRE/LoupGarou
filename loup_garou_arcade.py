@@ -555,33 +555,29 @@ class LoupGarouGame(arcade.Window):
         self.log_messages.append("🌙 La nuit tombe...")
 
     def _display_human_night_action_buttons(self):
-        """Génère les boutons et force l'état pour éviter la disparition."""
+        """Génère les boutons de la Sorcière et maintient l'état interactif."""
         self.action_buttons = []
         cx = self.width / 2
         button_y = 70
-        
-        # SÉCURITÉ : On s'assure que l'état permet le dessin
-        self.current_state = GameState.NIGHT_HUMAN_ACTION
 
+        self.current_state = GameState.NIGHT_HUMAN_ACTION
         if self.human_player.role == Role.SORCIERE:
-            # Récupération avec valeur par défaut True pour éviter les bugs d'initialisation
             has_life = getattr(self.human_player, 'has_life_potion', True)
             has_kill = getattr(self.human_player, 'has_kill_potion', True)
             victim = getattr(self.game_manager, 'victim_of_wolves', None)
 
-            # Bouton SAUVER : Prioritaire si une victime existe
-            if has_life and victim:
-                self.action_buttons.append(MenuButton(cx - 160, button_y, 140, 45, f"SAUVER {victim}", "SAUVER"))
+        if has_life and victim:
+            self.action_buttons.append(MenuButton(cx - 160, button_y, 140, 45, f"SAUVER {victim}", "SAUVER"))
+            self.log_messages.append(f"🧪 Sorcière : {victim} a été attaqué(e).")
+        
+        if has_kill:
+            x_pos = cx if not (has_life and victim) else cx
+            self.action_buttons.append(MenuButton(x_pos, button_y, 140, 45, "TUER", "TUER"))
+        
+        self.action_buttons.append(MenuButton(cx + 160, button_y, 120, 45, "PASSER", "PASSER"))
             
-            # Bouton TUER : Toujours là si la potion reste
-            if has_kill:
-                self.action_buttons.append(MenuButton(cx, button_y, 140, 45, "TUER", "TUER"))
-            
-            # Bouton PASSER : Toujours là pour ne pas bloquer
-            self.action_buttons.append(MenuButton(cx + 160, button_y, 120, 45, "PASSER", "PASSER"))
-            
-            if not victim:
-                self.log_messages.append("🧪 Sorcière : Pas de victime des loups détectée pour l'instant.")
+        if not victim:
+            self.log_messages.append("🧪 Sorcière : Pas de victime des loups détectée pour l'instant.")
 
     def on_mouse_press(self, x, y, button, modifiers):
         """Dispatche les clics de souris vers les fonctions spécialisées selon l'état."""
@@ -1372,6 +1368,9 @@ class LoupGarouGame(arcade.Window):
         
         PANEL_WIDTH = self.width // 3
         RIGHT_PANEL_START_X = self.width - PANEL_WIDTH
+
+        phase_text = f"JOUR {self.game_manager.day}" if not self.night_processing else f"NUIT {self.game_manager.day}"
+        arcade.draw_text(phase_text, RIGHT_PANEL_START_X + 20, self.height - 90, arcade.color.AQUA, 14, bold=True)
         
         arcade.draw_text(
             f"Loups Vivants : {self.game_manager.wolves_alive}",

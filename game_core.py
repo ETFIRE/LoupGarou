@@ -62,8 +62,8 @@ class Player:
         self.is_human = is_human
         self.role = role
         self.is_alive = True
-        self.has_kill_potion = False
-        self.has_life_potion = False
+        self.has_kill_potion = True
+        self.has_life_potion = True
         self.wolf_teammates = [] 
         self.has_hunter_shot = True
         self.last_protected_target = None
@@ -613,7 +613,7 @@ class GameManager:
                 victim.is_alive = False
                 # On réinitialise pour la nuit suivante
                 self.night_kill_target = None
-                
+
         self._recalculate_wolf_count()
         # On réinitialise les choix humains pour la nuit suivante
         self.human_choice = None
