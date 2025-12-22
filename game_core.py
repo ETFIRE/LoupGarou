@@ -607,6 +607,13 @@ class GameManager:
                 else:
                     self.last_death_was_by_wolf = False
 
+        if self.night_kill_target:
+            victim = self.get_player_by_name(self.night_kill_target)
+            if victim:
+                victim.is_alive = False
+                # On réinitialise pour la nuit suivante
+                self.night_kill_target = None
+                
         self._recalculate_wolf_count()
         # On réinitialise les choix humains pour la nuit suivante
         self.human_choice = None
