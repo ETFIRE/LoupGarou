@@ -247,7 +247,7 @@ class LoupGarouGame(arcade.Window):
         self.cupid_indicators = arcade.SpriteList()
 
         # --- PARAMÈTRES DU DÉBAT ---
-        self.debate_timer = 10 
+        self.debate_timer = 30 
         self.current_speaker = None
         self.current_message_full = ""
         self.current_message_display = ""
@@ -378,7 +378,7 @@ class LoupGarouGame(arcade.Window):
         self.game_manager.day += 1
         
         # Réinitialisation des paramètres de débat
-        self.debate_timer = 10
+        self.debate_timer = 30
         self.messages_generated = 0
         self.current_speaker = None
         self.message_is_complete = False
