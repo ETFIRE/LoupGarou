@@ -896,7 +896,7 @@ class LoupGarouGame(arcade.Window):
             self.menu_bg_sprite.center_y = self.height / 2
             self.menu_background_list.draw()
         cx, cy = self.width / 2, self.height / 2
-        
+
         # --- TITRE ---
         arcade.draw_text("CONFIGURATION", cx, cy + 240, arcade.color.WHITE, 35, anchor_x="center", bold=True)
 
@@ -1334,7 +1334,7 @@ class LoupGarouGame(arcade.Window):
     def draw_log(self):
         """Dessine le Journal de Bord (Historique Permanent) à GAUCHE."""
         LOG_X_START = 10
-        LOG_WIDTH = self.width // 5
+        LOG_WIDTH = self.width // 6
         LOG_HEIGHT = self.height - 40 
         
         arcade.draw_lbwh_rectangle_filled(
@@ -1342,19 +1342,18 @@ class LoupGarouGame(arcade.Window):
             10,
             LOG_WIDTH, 
             LOG_HEIGHT, 
-            (20, 20, 20, 180) 
+            (10, 10, 10, 140) 
         )
         
         x_pos = LOG_X_START + 10
         y_pos = self.height - 30 
-        line_spacing = 85 
-        font_size = 14 
+        line_spacing = 70 
         
         arcade.draw_text("JOURNAL DE BORD:", x_pos, y_pos, arcade.color.ORANGE_RED, 14)
-        y_pos -= 30 
+        y_pos -= 35 
         
         for msg in reversed(self.log_messages):
-            if y_pos < 50: 
+            if y_pos < 40: 
                 break
             
             arcade.draw_text(
@@ -1362,8 +1361,8 @@ class LoupGarouGame(arcade.Window):
                 x_pos, 
                 y_pos, 
                 arcade.color.LIGHT_GRAY, 
-                font_size, 
-                width=LOG_WIDTH - 30,
+                11, 
+                width=LOG_WIDTH - 20,
                 multiline=True
             )
             y_pos -= line_spacing 
