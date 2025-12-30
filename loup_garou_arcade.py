@@ -5,12 +5,12 @@ import time
 from enum import Enum 
 import math
 import os
-import sys
+import socket
 from dotenv import load_dotenv
 import speech_recognition as sr
 import threading
 import math
-import player # Nécessaire pour l'écoute non bloquante
+import json
 
 load_dotenv() 
 
@@ -20,6 +20,103 @@ from enums_and_roles import Camp, NightAction, Role
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 700
 SCREEN_TITLE = "Loup Garou IA - Lucia Edition"
+
+class NetworkHandler:
+    def __init__(self, game_instance):
+        self.game = game_instance
+        self.socket = None
+        self.conn = None
+        self.is_host = False
+        self.running = False
+
+    def start_host(self, port=5555):
+        """Lance le serveur sans bloquer l'affichage Arcade."""
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.bind(('0.0.0.0', port))
+        self.socket.listen(1)
+        self.is_host = True
+        self.running = True
+    
+        # On utilise un Thread pour que .accept() ne fige pas le jeu
+        accept_thread = threading.Thread(target=self._wait_for_client, daemon=True)
+        accept_thread.start()
+
+    def _wait_for_client(self):
+        """Cette fonction tourne en arrière-plan."""
+        print("Hôte : En attente du Joueur 2...")
+        self.conn, addr = self.socket.accept() # C'est ici que ça bloquait
+        print(f"Joueur 2 connecté depuis {addr}")
+        self._start_listening()
+
+    def _accept_connection(self):
+        self.conn, addr = self.socket.accept()
+        print(f"Connecté avec : {addr}")
+        self._start_listening()
+
+    def connect_to_host(self, ip, port=5555):
+        """Lance la connexion dans un thread pour ne pas figer Arcade."""
+        self.target_ip = ip
+        self.target_port = port
+        self.is_host = False
+        
+        # On lance la tentative de connexion en arrière-plan
+        connect_thread = threading.Thread(target=self._async_connect, daemon=True)
+        connect_thread.start()
+
+    def _async_connect(self):
+        """Tentative de connexion réelle."""
+        try:
+            self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            # Timeout court pour ne pas attendre indéfiniment
+            self.conn.settimeout(5) 
+            self.conn.connect((self.target_ip, self.target_port))
+            self.conn.settimeout(None) # Repasser en mode normal
+            self.running = True
+            print(f"✅ Connecté à l'hôte {self.target_ip}")
+            
+            ip_succes = self.target_ip
+            arcade.schedule(lambda dt: self.game.log_messages.append(f"✅ Connecté à {ip_succes}"), 0)
+            
+            self._start_listening()
+
+        except Exception as err:
+            # CRUCIAL : On transforme l'exception en chaîne de caractères immédiatement
+            error_msg = str(err)
+            arcade.schedule(lambda dt: self.game.log_messages.append(f"❌ Échec connexion : {error_msg}"), 0)
+
+    def _start_listening(self):
+        thread = threading.Thread(target=self._receive_loop, daemon=True)
+        thread.start()
+
+    def _receive_loop(self):
+        while self.running:
+            try:
+                data = self.conn.recv(4096).decode('utf-8')
+                if data:
+                    packet = json.loads(data)
+                    self.game.handle_network_packet(packet)
+            except:
+                self.running = False
+
+    def send(self, data):
+        """Envoie un dictionnaire Python converti en JSON."""
+        if self.conn:
+            self.conn.sendall(json.dumps(data).encode('utf-8'))
+
+    def handle_network_packet(self, packet):
+        """Traite les données reçues du réseau."""
+        if packet["type"] == "CHAT":
+            # On ajoute le message reçu au journal de bord
+            msg = f"🗣️ {packet['sender']} : {packet['text']}"
+            self.log_messages.append(msg)
+        
+            # Si nous sommes l'hôte, on renvoie le message à l'autre joueur
+        if self.network.is_host:
+            self.network.send(packet)
+
+        elif packet["type"] == "START_GAME":
+            # Synchronise le lancement de la partie
+            self._finalize_setup_and_start()
 
 class GameState(Enum):
     SETUP = 1 
@@ -167,8 +264,18 @@ class ChatInput:
     def send_message(self):
         if self.text.strip():
             message = self.text.strip()
-            
-            self.game.log_messages.append(f"🗣️ {self.game.human_player.name} : {message}")
+            nom_joueur = self.game.human_player.name
+        
+            # Envoi local 
+            self.game.log_messages.append(f"🗣️ {nom_joueur} : {message}")
+        
+        
+        if self.game.network and self.game.network.running:
+            self.game.network.send({
+                "type": "CHAT", 
+                "sender": nom_joueur, 
+                "text": message
+            })
             
             alive_ais = [p for p in self.game.game_manager.get_alive_players() if not p.is_human]
             for listener in alive_ais:
@@ -188,8 +295,16 @@ class ChatInput:
 
 class LoupGarouGame(arcade.Window):
     
-    def __init__(self, width, height, title):
+    def __init__(self, width, height, title, is_host=True):
         super().__init__(width, height, title, resizable=True)
+
+        self.network = NetworkHandler(self) 
+        self.target_ip = "127.0.0.1"
+        self.ip_input_active = False
+        self.game_manager = None
+
+        self.receive_thread = threading.Thread(target=self._network_receive_loop, daemon=True)
+
         self.set_update_rate(1/60)
 
         self.menu_human_name = "Lucie"
@@ -282,6 +397,26 @@ class LoupGarouGame(arcade.Window):
         self.setup_buttons = []
 
         self.witch_choosing_target = False
+    
+    def _network_receive_loop(self):
+        """Boucle tournant dans un thread séparé pour recevoir les paquets."""
+        while True:
+            # On vérifie si une connexion est établie ET active
+            if self.network and self.network.conn:
+                try:
+                    data = self.network.conn.recv(4096).decode('utf-8')
+                    if data:
+                        packet = json.loads(data)
+                        arcade.schedule(lambda dt: self.handle_network_packet(packet), 0)
+                except (ConnectionResetError, ConnectionAbortedError):
+                    print("La connexion a été perdue.")
+                    self.network.conn = None
+                    break
+                except Exception as e:
+                    # Évite d'inonder la console si le socket n'est pas encore prêt
+                    pass
+        
+        time.sleep(0.2)  # Laisse respirer le processeur
 
     def _init_sounds(self):
         """Centralisation du chargement des sons et création des attributs."""
@@ -432,6 +567,11 @@ class LoupGarouGame(arcade.Window):
                 MenuButton(cx - 130, y_temps, 40, 40, "-", "DEC_TIME"),
                 MenuButton(cx + 130, y_temps, 40, 40, "+", "INC_TIME")
             ]
+
+            # Bouton pour l'Hôte
+            self.btn_host = MenuButton(cx - 100, cy - 250, 180, 50, "HÉBERGER", "START_HOST")
+            # Bouton pour le Client
+            self.btn_join = MenuButton(cx + 100, cy - 250, 180, 50, "REJOINDRE", "START_JOIN")
 
             self.start_button = MenuButton(cx, 100, 320, 75, "LANCER LA PARTIE", "START_GAME")
         
@@ -640,6 +780,14 @@ class LoupGarouGame(arcade.Window):
         # Bouton Lancer la partie
         elif self.start_button.check_click(x, y):
             self._finalize_setup_and_start()
+
+        elif self.btn_host.check_click(x, y):
+            self.log_messages.append("🌐 Tentative d'hébergement...") # Message immédiat
+            self.network.start_host()
+            
+        elif self.btn_join.check_click(x, y):
+            self.log_messages.append(f"🔌 Connexion à {self.target_ip}...") # Message immédiat
+            self.network.connect_to_host(self.target_ip)
 
     def _handle_seer_click(self, x, y):
         for name, sprite in self.player_map.items():
@@ -897,6 +1045,17 @@ class LoupGarouGame(arcade.Window):
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
 
+        if self.ip_input_active:
+            if symbol == arcade.key.BACKSPACE:
+                self.target_ip = self.target_ip[:-1]
+            elif symbol == arcade.key.ENTER:
+                self.ip_input_active = False
+            else:
+                char = chr(symbol)
+                if char in "0123456789.": # Uniquement chiffres et points
+                    self.target_ip += char
+            return
+
         # --- 1. SAISIE DU NOM DANS LE MENU SETUP ---
         if self.current_state == GameState.SETUP:
             if symbol == arcade.key.BACKSPACE:
@@ -986,6 +1145,12 @@ class LoupGarouGame(arcade.Window):
         # --- CHAOS ET TEMPS ---
         self.btn_chaos.color = arcade.color.DARK_RED if self.chaos_mode else arcade.color.GRAY
         self.btn_chaos.draw()
+
+        color_ip = arcade.color.YELLOW if self.ip_input_active else arcade.color.WHITE
+        arcade.draw_text(f"IP Serveur : {self.target_ip}", cx, cy - 200, color_ip, 18, anchor_x="center")
+
+        self.btn_host.draw()
+        self.btn_join.draw()
 
         arcade.draw_text(f"Temps du débat : {self.debate_duration_setup}s", 
                          cx, y_temps - 5, arcade.color.WHITE, 18, 

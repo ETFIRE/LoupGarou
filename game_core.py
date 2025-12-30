@@ -4,8 +4,30 @@ import random
 import time 
 import os 
 from collections import defaultdict 
-import json 
+import json
+import socket 
 from enums_and_roles import Camp, NightAction, Role 
+
+
+class NetworkManager:
+    def __init__(self, host='0.0.0.0', port=5555):
+        self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.port = port
+        self.host = host
+        self.client = None
+
+    def start_server(self):
+        """L'hôte appelle cette fonction pour attendre le J2."""
+        self.server.bind((self.host, self.port))
+        self.server.listen(1)
+        print(f"En attente du Joueur 2 sur le port {self.port}...")
+        self.client, addr = self.server.accept()
+        print(f"Joueur 2 connecté depuis {addr}")
+
+    def connect_to_host(self, target_ip):
+        """Le J2 appelle cette fonction pour rejoindre l'hôte."""
+        self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.client.connect((target_ip, self.port))
 
 try:
     from chat_agent import ChatAgent
