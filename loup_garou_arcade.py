@@ -398,6 +398,20 @@ class LoupGarouGame(arcade.Window):
         self.setup_buttons = []
 
         self.witch_choosing_target = False
+
+    def handle_network_packet(self, packet):
+        """Méthode de réception au niveau de la classe principale LoupGarouGame."""
+        if packet["type"] == "CHAT":
+            msg = f"🗣️ {packet['sender']} : {packet['text']}"
+            self.log_messages.append(msg)
+            
+            # Si hôte, on renvoie aux autres
+            if self.network.is_host:
+                self.network.send(packet)
+
+        elif packet["type"] == "START_GAME":
+            # On lance la partie sur l'ordi 2
+            self._finalize_setup_and_start()
     
     def _network_receive_loop(self):
         """Boucle tournant dans un thread séparé pour recevoir les paquets."""
@@ -995,6 +1009,9 @@ class LoupGarouGame(arcade.Window):
 
     def _finalize_setup_and_start(self):
         """Initialise le moteur de jeu et lance la première phase."""
+
+        if self.current_state != GameState.SETUP:
+            return
 
         # Si on est l'hôte, on prévient le client avant de démarrer localement
         if self.network and self.network.is_host and self.network.running:
