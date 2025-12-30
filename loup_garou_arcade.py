@@ -728,6 +728,28 @@ class LoupGarouGame(arcade.Window):
 
         # DISPATCH SELON L'ÉTAT
         if self.current_state == GameState.SETUP:
+            cx = self.width / 2
+            cy = self.height / 2
+            y_ip = 205 # Assurez-vous que cette valeur est identique à celle de _draw_setup_menu
+
+            # --- DÉTECTION CLIC SUR CHAMP IP ---
+            if cx - 150 < x < cx + 150 and y_ip - 20 < y < y_ip + 20:
+                self.ip_input_active = True
+                self.name_input_active = False # Désactive le nom si vous l'aviez
+                return
+
+            # --- DÉTECTION CLIC SUR CHAMP NOM ---
+            # (Zone autour de cy + 170 où est dessiné le nom)
+            if cx - 150 < x < cx + 150 and (cy + 170) - 20 < y < (cy + 170) + 20:
+                self.name_input_active = True
+                self.ip_input_active = False
+                return
+
+            # --- DÉSACTIVATION SI CLIC AILLEURS ---
+            # Si on clique ailleurs, on désactive les saisies (sauf si c'est un bouton)
+            self.ip_input_active = False
+            self.name_input_active = False
+
             # 1. Vérification des boutons de réglage du temps (+/-)
             for btn in self.setup_buttons:
                 if btn.check_click(x, y):
@@ -1053,59 +1075,61 @@ class LoupGarouGame(arcade.Window):
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
 
+        # --- PRIORITÉ 1 : SAISIE DE L'IP ---
         if self.ip_input_active:
             if symbol == arcade.key.BACKSPACE:
                 self.target_ip = self.target_ip[:-1]
             elif symbol == arcade.key.ENTER:
                 self.ip_input_active = False
             else:
-                char = chr(symbol)
-                if char in "0123456789.": # Uniquement chiffres et points
-                    self.target_ip += char
-            return
+                try:
+                    char = chr(symbol)
+                    # On autorise chiffres et points
+                    if char in "0123456789.":
+                        self.target_ip += char
+                except ValueError:
+                    pass
+            return  # On sort pour ne pas écrire dans le nom en même temps
 
-        # --- 1. SAISIE DU NOM DANS LE MENU SETUP ---
+        # --- PRIORITÉ 2 : MENU SETUP (NOM) ---
         if self.current_state == GameState.SETUP:
+            # On n'écrit le nom que si le champ IP n'est pas actif
             if symbol == arcade.key.BACKSPACE:
                 self.menu_human_name = self.menu_human_name[:-1]
+            elif symbol == arcade.key.ENTER:
+                # Appuyer sur Enter peut valider le nom ou enlever le focus
+                pass
             elif len(self.menu_human_name) < 12:
                 try:
                     char = chr(symbol)
                     if char.isalnum():
-                        # Gestion des majuscules via Shift ou CapsLock
                         if (modifiers & arcade.key.MOD_SHIFT) or self.key_is_caps:
                             self.menu_human_name += char.upper()
                         else:
                             self.menu_human_name += char.lower()
                 except ValueError:
-                    pass # Ignore les touches non-caractères (F1, Ctrl, etc.)
+                    pass
             return
 
-        # --- 2. SAISIE DU CHAT PENDANT LE DÉBAT ---
+        # --- PRIORITÉ 3 : CHAT PENDANT LE DÉBAT ---
         if self.chat_input.active:
-            if symbol == arcade.key.ESCAPE: # Permet de sortir du chat
+            if symbol == arcade.key.ESCAPE:
                 self.chat_input.active = False
                 return
             self.chat_input.handle_key_press(symbol, modifiers)
             return
     
-        # --- 3. RACCOURCIS GÉNÉRAUX ---
-        # Plein écran
+        # --- RACCOURCIS GÉNÉRAUX ---
         if symbol == arcade.key.F:
             self.set_fullscreen(not self.fullscreen)
-
-        # Verrouillage majuscule (pour votre variable interne)
         elif symbol == arcade.key.CAPSLOCK:
             self.key_is_caps = not self.key_is_caps
-        
-        # Passer le débat (Espace)
         elif symbol == arcade.key.SPACE:
             if self.current_state == GameState.DEBATE:
                 self.debate_timer = 0 
                 if self.current_speaker:
                     self.current_message_display = self.current_message_full
                     self.log_messages.append(f"🗣️ {self.current_speaker.name}: {self.current_message_full}")
-            
                 self.current_speaker = None
                 self.message_is_complete = False 
                 self.log_messages.append("\n⏩ DÉBAT SKIPPÉ PAR L'HUMAIN.")
