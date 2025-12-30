@@ -564,8 +564,25 @@ class LoupGarouGame(arcade.Window):
 
             y_lancer  = 70   # Le bouton vert tout en bas
             y_reseau  = 160  # Les boutons Héberger/Rejoindre au-dessus
-            y_ip_text = 200  # Le texte de l'IP juste au-dessus
-            y_temps   = 250  # Le réglage du temps encore au-dessus
+            y_ip_text = 210  # Le texte de l'IP juste au-dessus
+            y_temps   = 270  # Le réglage du temps encore au-dessus
+            y_chaos   = 340
+
+            # 1. Rôles (haut)
+            y_role = cy - 30 
+            if hasattr(self, 'btn_role_prev'):
+                self.btn_role_prev.center_x, self.btn_role_prev.center_y = cx - 220, y_role
+            if hasattr(self, 'btn_role_next'):
+                self.btn_role_next.center_x, self.btn_role_next.center_y = cx + 220, y_role
+
+            # 2. Chaos
+            self.btn_chaos.center_x, self.btn_chaos.center_y = cx, y_chaos
+
+            # 3. Temps du débat
+            self.setup_buttons = [
+                MenuButton(cx - 160, y_temps, 40, 40, "-", "DEC_TIME"),
+                MenuButton(cx + 160, y_temps, 40, 40, "+", "INC_TIME")
+            ]
 
             # 2. Boutons Réseau (Héberger / Rejoindre)
             self.btn_host = MenuButton(cx - 110, y_reseau, 180, 50, "HÉBERGER", "START_HOST")
@@ -812,11 +829,15 @@ class LoupGarouGame(arcade.Window):
             self._finalize_setup_and_start()
 
         elif self.btn_host.check_click(x, y):
-            self.log_messages.append("🌐 Tentative d'hébergement...") # Message immédiat
+            self.log_messages.append("🌐 Tentative d'hébergement...")
             self.network.start_host()
-            
+            if not self.receive_thread.is_alive():
+                self.receive_thread.start()
+
         elif self.btn_join.check_click(x, y):
-            self.log_messages.append(f"🔌 Connexion à {self.target_ip}...") # Message immédiat
+            print("Bouton Rejoindre cliqué") # Pour tester
+            self.log_messages.append(f"🔌 Connexion à {self.target_ip}...")
+            # On utilise la nouvelle version non-bloquante de connect_to_host
             self.network.connect_to_host(self.target_ip)
 
     def _handle_seer_click(self, x, y):
@@ -1072,6 +1093,20 @@ class LoupGarouGame(arcade.Window):
             self.menu_bg_sprite.center_x = width / 2
             self.menu_bg_sprite.center_y = height / 2
 
+    def on_text(self, text):
+        """Reçoit directement les caractères imprimables (gère Shift, ., etc.)"""
+        # Si on est en train de taper l'IP
+        if self.ip_input_active:
+            if text in "0123456789.":
+                self.target_ip += text
+            return
+
+        # Si on est en train de taper le nom
+        if self.name_input_active:
+            if text.isalnum() and len(self.menu_human_name) < 12:
+                self.menu_human_name += text
+            return
+
     def on_key_press(self, symbol, modifiers):
         """Gère les entrées clavier (y compris la saisie du chat)."""
 
@@ -1081,16 +1116,7 @@ class LoupGarouGame(arcade.Window):
                 self.target_ip = self.target_ip[:-1]
             elif symbol == arcade.key.ENTER:
                 self.ip_input_active = False
-            else:
-                try:
-                    char = chr(symbol)
-                    # On autorise chiffres et points
-                    if char in "0123456789.":
-                        self.target_ip += char
-                except ValueError:
-                    pass
-            return  # On sort pour ne pas écrire dans le nom en même temps
-
+            
         # --- PRIORITÉ 2 : MENU SETUP (NOM) ---
         if self.current_state == GameState.SETUP:
             # On n'écrit le nom que si le champ IP n'est pas actif
@@ -1145,7 +1171,8 @@ class LoupGarouGame(arcade.Window):
             
         cx = self.width / 2
         cy = self.height / 2  
-        y_temps = 240         
+        y_temps = 270 
+        y_ip = 210        
 
         # --- TITRE ET NOM ---
         arcade.draw_text("CONFIGURATION", cx, cy + 240, arcade.color.WHITE, 35, anchor_x="center", bold=True)
@@ -1179,10 +1206,15 @@ class LoupGarouGame(arcade.Window):
         self.btn_chaos.draw()
 
         color_ip = arcade.color.YELLOW if self.ip_input_active else arcade.color.WHITE
-        arcade.draw_text(f"IP Serveur : {self.target_ip}", cx, cy - 150, color_ip, 18, anchor_x="center")
+        cursor = "_" if self.ip_input_active and int(time.time() * 2) % 2 == 0 else ""
+        
+        arcade.draw_text(f"IP Serveur : {self.target_ip}{cursor}", cx, y_ip, color_ip, 18, anchor_x="center")
 
-        self.btn_host.draw()
-        self.btn_join.draw()
+        # Vérification de sécurité pour éviter le crash
+        if hasattr(self, 'btn_host') and hasattr(self.btn_host, 'draw'):
+            self.btn_host.draw()
+        if hasattr(self, 'btn_join') and hasattr(self.btn_join, 'draw'):
+            self.btn_join.draw()
 
         arcade.draw_text(f"Temps du débat : {self.debate_duration_setup}s", 
                          cx, y_temps - 5, arcade.color.WHITE, 18, 
