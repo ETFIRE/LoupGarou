@@ -107,15 +107,16 @@ class NetworkHandler:
         """Traite les données reçues du réseau."""
         if packet["type"] == "CHAT":
             msg = f"🗣️ {packet['sender']} : {packet['text']}"
-            self.log_messages.append(msg)
+            # On ajoute le message au log du jeu
+            arcade.schedule(lambda dt: self.game.log_messages.append(msg), 0)
         
-            if self.network.is_host:
-                self.network.send(packet)
+            if self.is_host:
+                self.send(packet)
 
-        # CETTE CONDITION DOIT ÊTRE ALIGNÉE AVEC LE PREMIER 'IF'
+        # CE BLOC DOIT ÊTRE ALIGNÉ ICI (Pas à l'intérieur du bloc CHAT)
         elif packet["type"] == "START_GAME":
-            # Le client reçoit l'ordre de lancer la partie
-            print("Signal de lancement reçu !")
+            print("Signal de lancement reçu par le client !")
+            # On demande au jeu de lancer la phase de démarrage
             arcade.schedule(lambda dt: self.game._finalize_setup_and_start(), 0)
 
 class GameState(Enum):
