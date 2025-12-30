@@ -409,7 +409,7 @@ class LoupGarouGame(arcade.Window):
                 p = self.game_manager.get_player_by_name(name)
                 if p:
                     p.is_alive = False
-                    
+
     def handle_network_packet(self, packet):
         """Méthode de réception au niveau de la classe principale LoupGarouGame."""
         if packet["type"] == "CHAT":
@@ -989,13 +989,15 @@ class LoupGarouGame(arcade.Window):
             for name, sprite in self.player_map.items():
                 if sprite.collides_with_point((x, y)):
                     target = self.game_manager.get_player_by_name(name)
-                    if target and target.is_alive and target != self.human_player:
+                    # On vérifie que la cible est vivante et n'est pas nous-même
+                    if target and target.is_alive:
                         target.is_alive = False
-                        self.human_player.has_kill_potion = False
-                        self.game_manager.night_kill_target = name 
-                        self.log_messages.append(f"🧪 La Sorcière a empoisonné {name}.")
-                    
-                        # C'est seulement ICI qu'on termine le tour
+                        if hasattr(self.human_player, 'has_kill_potion'):
+                            self.human_player.has_kill_potion = False
+                        
+                        self.log_messages.append(f"🧪 {name} a été éliminé par la potion.")
+                        
+                        # Désactivation de l'état de sélection
                         self.witch_choosing_target = False
                         self.current_state = GameState.NIGHT_IA_ACTION
                         self.night_processing = False
@@ -1315,7 +1317,8 @@ class LoupGarouGame(arcade.Window):
     
         for player in self.game_manager.players:
             sprite = self.player_map.get(player.name)
-            if sprite:
+            # SÉCURITÉ : On vérifie que le sprite existe avant de dessiner le texte
+            if sprite is not None:
                 color = arcade.color.WHITE
                 if not player.is_alive:
                     color = arcade.color.RED
@@ -1445,6 +1448,7 @@ class LoupGarouGame(arcade.Window):
     
         if not clicked_action_data:
             return
+            
 
         role_type = self.human_player.role
     
@@ -1452,8 +1456,15 @@ class LoupGarouGame(arcade.Window):
             self._logic_witch_action(clicked_action_data)
         
         if clicked_action_data == "TUER":
-            self.action_buttons = [] 
+            self.witch_choosing_target = True
+            self.log_messages.append("💀 Sorcière : Cliquez sur un joueur pour l'éliminer.")
+            self.action_buttons = [] # On efface les boutons pour libérer la vue
             return 
+            
+        elif clicked_action_data == "SAUVER":
+            self._logic_witch_action("SAUVER")
+        elif clicked_action_data == "PASSER":
+            self._logic_witch_action("PASSER") 
             
         elif role_type == Role.VOYANTE:
             self._logic_seer_action(clicked_action_data)
