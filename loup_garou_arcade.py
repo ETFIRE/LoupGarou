@@ -68,7 +68,7 @@ class NetworkHandler:
         try:
             self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             # Timeout court pour ne pas attendre indéfiniment
-            self.conn.settimeout(5) 
+            self.conn.settimeout(3) 
             self.conn.connect((self.target_ip, self.target_port))
             self.conn.settimeout(None) # Repasser en mode normal
             self.running = True
@@ -741,7 +741,9 @@ class LoupGarouGame(arcade.Window):
         if self.current_state == GameState.DEBATE and self.human_player.is_alive:
             self.chat_input.check_click(x, y)
             if self.chat_input.active:
-                return 
+                return
+
+        print(f"Clic détecté aux coordonnées : x={x}, y={y}") 
 
         # DISPATCH SELON L'ÉTAT
         if self.current_state == GameState.SETUP:
@@ -750,10 +752,19 @@ class LoupGarouGame(arcade.Window):
             y_ip = 205 # Assurez-vous que cette valeur est identique à celle de _draw_setup_menu
 
             # --- DÉTECTION CLIC SUR CHAMP IP ---
-            if cx - 150 < x < cx + 150 and y_ip - 20 < y < y_ip + 20:
+            if cx - 150 < x < cx + 150 and 190 < y < 230:
+                print("--- FOCUS SUR IP ACTIVE ---")
                 self.ip_input_active = True
                 self.name_input_active = False # Désactive le nom si vous l'aviez
                 return
+            
+            # --- DÉSACTIVATION SI CLIC AILLEURS ---
+            # Si on clique ailleurs, on désactive les saisies (sauf si c'est un bouton)
+            self.ip_input_active = False
+            self.name_input_active = False
+
+            # 2. Gestion des autres boutons de setup (Joueurs, Loups, Start)
+            self._handle_setup_clicks(x, y)
 
             # --- DÉTECTION CLIC SUR CHAMP NOM ---
             # (Zone autour de cy + 170 où est dessiné le nom)
@@ -761,11 +772,6 @@ class LoupGarouGame(arcade.Window):
                 self.name_input_active = True
                 self.ip_input_active = False
                 return
-
-            # --- DÉSACTIVATION SI CLIC AILLEURS ---
-            # Si on clique ailleurs, on désactive les saisies (sauf si c'est un bouton)
-            self.ip_input_active = False
-            self.name_input_active = False
 
             # 1. Vérification des boutons de réglage du temps (+/-)
             for btn in self.setup_buttons:
@@ -778,9 +784,6 @@ class LoupGarouGame(arcade.Window):
                     elif action == "DEC_TIME":
                         self.debate_duration_setup = max(10, self.debate_duration_setup - 10)
                     return # Sortie immédiate après avoir traité le clic
-
-            # 2. Gestion des autres boutons de setup (Joueurs, Loups, Start)
-            self._handle_setup_clicks(x, y)
             
         elif self.current_state == GameState.CUPID_ACTION:
             self._handle_cupid_selection_click(x, y)
