@@ -68,7 +68,7 @@ class NetworkHandler:
         try:
             self.conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             # Timeout court pour ne pas attendre indéfiniment
-            self.conn.settimeout(3) 
+            self.conn.settimeout(4) 
             self.conn.connect((self.target_ip, self.target_port))
             self.conn.settimeout(None) # Repasser en mode normal
             self.running = True
@@ -106,17 +106,18 @@ class NetworkHandler:
     def handle_network_packet(self, packet):
         """Traite les données reçues du réseau."""
         if packet["type"] == "CHAT":
-            # On ajoute le message reçu au journal de bord
             msg = f"🗣️ {packet['sender']} : {packet['text']}"
-            self.log_messages.append(msg)
-        
-            # Si nous sommes l'hôte, on renvoie le message à l'autre joueur
-        if self.network.is_host:
-            self.network.send(packet)
+            arcade.schedule(lambda dt: self.game.log_messages.append(msg), 0)
+            
+            # Si nous sommes l'hôte, on relaie aux autres (si besoin)
+            if self.is_host:
+                self.send(packet)
 
+        # CETTE CONDITION DOIT ÊTRE ALIGNÉE AVEC LE PREMIER 'IF'
         elif packet["type"] == "START_GAME":
-            # Synchronise le lancement de la partie
-            self._finalize_setup_and_start()
+            # Le client reçoit l'ordre de lancer la partie
+            print("Signal de lancement reçu !")
+            arcade.schedule(lambda dt: self.game._finalize_setup_and_start(), 0)
 
 class GameState(Enum):
     SETUP = 1 
@@ -994,6 +995,11 @@ class LoupGarouGame(arcade.Window):
 
     def _finalize_setup_and_start(self):
         """Initialise le moteur de jeu et lance la première phase."""
+
+        # Si on est l'hôte, on prévient le client avant de démarrer localement
+        if self.network and self.network.is_host and self.network.running:
+            self.network.send({"type": "START_GAME"})
+            
         diff_choisie = self.difficulty_levels[self.menu_diff_index]
         self.game_manager = GameManager(
             human_player_name=self.menu_human_name,
