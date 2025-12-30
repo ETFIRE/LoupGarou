@@ -312,7 +312,7 @@ class LoupGarouGame(arcade.Window):
         self.name_input_active = False
 
         self.chaos_mode = False
-        self.btn_chaos = MenuButton(0, 0, 200, 40, "!! CHAOS !! : CLASSIQUE", "INVOQUER LE CHAOS")
+        self.btn_chaos = MenuButton(0, 0, 180, 40, "!! CHAOS !! : CLASSIQUE", "INVOQUER LE CHAOS")
 
         self.menu_num_wolves = 3  # Valeur par défaut
         self.btn_wolf_plus = MenuButton(0, 0, 40, 40, "+", "WOLF_PLUS")
@@ -554,26 +554,34 @@ class LoupGarouGame(arcade.Window):
         cy = self.height / 2
 
         if self.current_state == GameState.SETUP:
-            y_role = cy - 20 
+            y_role = cy - 30 
             if hasattr(self, 'btn_role_prev'):
                 self.btn_role_prev.center_x, self.btn_role_prev.center_y = cx - 220, y_role
             if hasattr(self, 'btn_role_next'):
                 self.btn_role_next.center_x, self.btn_role_next.center_y = cx + 220, y_role
 
-            self.btn_chaos.center_x, self.btn_chaos.center_y = cx, cy - 70
+            self.btn_chaos.center_x, self.btn_chaos.center_y = cx, 280
 
-            y_temps = 190
+            y_lancer  = 70   # Le bouton vert tout en bas
+            y_reseau  = 160  # Les boutons Héberger/Rejoindre au-dessus
+            y_ip_text = 200  # Le texte de l'IP juste au-dessus
+            y_temps   = 250  # Le réglage du temps encore au-dessus
+
+            # 2. Boutons Réseau (Héberger / Rejoindre)
+            self.btn_host = MenuButton(cx - 110, y_reseau, 180, 50, "HÉBERGER", "START_HOST")
+            self.btn_join = MenuButton(cx + 110, y_reseau, 180, 50, "REJOINDRE", "START_JOIN")
+
             self.setup_buttons = [
-                MenuButton(cx - 130, y_temps, 40, 40, "-", "DEC_TIME"),
-                MenuButton(cx + 130, y_temps, 40, 40, "+", "INC_TIME")
+                MenuButton(cx - 200, y_temps, 40, 40, "-", "DEC_TIME"),
+                MenuButton(cx + 200, y_temps, 40, 40, "+", "INC_TIME")
             ]
 
-            # Bouton pour l'Hôte
-            self.btn_host = MenuButton(cx - 100, cy - 250, 180, 50, "HÉBERGER", "START_HOST")
-            # Bouton pour le Client
-            self.btn_join = MenuButton(cx + 100, cy - 250, 180, 50, "REJOINDRE", "START_JOIN")
-
-            self.start_button = MenuButton(cx, 100, 320, 75, "LANCER LA PARTIE", "START_GAME")
+            # 3. Bouton Lancer la partie
+            self.start_button = MenuButton(cx, y_lancer, 320, 70, "LANCER LA PARTIE", "START_GAME")
+            
+            # On garde ces valeurs en mémoire pour le dessin
+            self.y_ip_text = y_ip_text
+            self.y_temps_text = y_temps
         
     def _setup_sprites(self):
         """Crée les représentations visuelles des joueurs."""
@@ -1113,7 +1121,7 @@ class LoupGarouGame(arcade.Window):
             
         cx = self.width / 2
         cy = self.height / 2  
-        y_temps = 190         
+        y_temps = 240         
 
         # --- TITRE ET NOM ---
         arcade.draw_text("CONFIGURATION", cx, cy + 240, arcade.color.WHITE, 35, anchor_x="center", bold=True)
@@ -1147,7 +1155,7 @@ class LoupGarouGame(arcade.Window):
         self.btn_chaos.draw()
 
         color_ip = arcade.color.YELLOW if self.ip_input_active else arcade.color.WHITE
-        arcade.draw_text(f"IP Serveur : {self.target_ip}", cx, cy - 200, color_ip, 18, anchor_x="center")
+        arcade.draw_text(f"IP Serveur : {self.target_ip}", cx, cy - 150, color_ip, 18, anchor_x="center")
 
         self.btn_host.draw()
         self.btn_join.draw()
