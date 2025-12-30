@@ -94,7 +94,7 @@ class NetworkHandler:
                 data = self.conn.recv(4096).decode('utf-8')
                 if data:
                     packet = json.loads(data)
-                    self.game.handle_network_packet(packet)
+                    self.handle_network_packet(packet)
             except:
                 self.running = False
 
@@ -108,7 +108,7 @@ class NetworkHandler:
         if packet["type"] == "CHAT":
             msg = f"🗣️ {packet['sender']} : {packet['text']}"
             # On ajoute le message au log du jeu
-            arcade.schedule(lambda dt: self.game.log_messages.append(msg), 0)
+            arcade.schedule(lambda dt: self.game.handle_network_packet(packet), 0)
         
             if self.is_host:
                 self.send(packet)
@@ -400,18 +400,20 @@ class LoupGarouGame(arcade.Window):
         self.witch_choosing_target = False
 
     def handle_network_packet(self, packet):
-        """Méthode de réception au niveau de la classe principale LoupGarouGame."""
+        """Traite les données reçues du réseau."""
         if packet["type"] == "CHAT":
             msg = f"🗣️ {packet['sender']} : {packet['text']}"
-            self.log_messages.append(msg)
-            
-            # Si hôte, on renvoie aux autres
-            if self.network.is_host:
-                self.network.send(packet)
+            # On ajoute le message au log du jeu
+            arcade.schedule(lambda dt: self.game.handle_network_packet(packet), 0)
+        
+            if self.is_host:
+                self.send(packet)
 
+        # CE BLOC DOIT ÊTRE ALIGNÉ ICI (Pas à l'intérieur du bloc CHAT)
         elif packet["type"] == "START_GAME":
-            # On lance la partie sur l'ordi 2
-            self._finalize_setup_and_start()
+            print("Signal de lancement reçu par le client !")
+            # On demande au jeu de lancer la phase de démarrage
+            arcade.schedule(lambda dt: self.game._finalize_setup_and_start(), 0)
     
     def _network_receive_loop(self):
         """Boucle tournant dans un thread séparé pour recevoir les paquets."""
