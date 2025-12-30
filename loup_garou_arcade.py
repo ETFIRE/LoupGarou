@@ -104,20 +104,20 @@ class NetworkHandler:
             self.conn.sendall(json.dumps(data).encode('utf-8'))
 
     def handle_network_packet(self, packet):
-        """Traite les données reçues du réseau."""
         if packet["type"] == "CHAT":
-            msg = f"🗣️ {packet['sender']} : {packet['text']}"
-            # On ajoute le message au log du jeu
             arcade.schedule(lambda dt: self.game.handle_network_packet(packet), 0)
-        
-            if self.is_host:
-                self.send(packet)
 
-        # CE BLOC DOIT ÊTRE ALIGNÉ ICI (Pas à l'intérieur du bloc CHAT)
         elif packet["type"] == "START_GAME":
-            print("Signal de lancement reçu par le client !")
-            # On demande au jeu de lancer la phase de démarrage
             arcade.schedule(lambda dt: self.game._finalize_setup_and_start(), 0)
+        # --- NOUVEAU : Synchronisation des données de jeu ---
+        elif packet["type"] == "GAME_UPDATE":
+            # On synchronise les morts et les messages de log
+            arcade.schedule(lambda dt: self.game.sync_from_host(packet), 0)
+
+        elif packet["type"] == "CHANGE_STATE":
+            # On force le client à changer d'état pour suivre l'hôte
+            new_state = GameState(packet["state"])
+            arcade.schedule(lambda dt: setattr(self.game, 'current_state', new_state), 0)
 
 class GameState(Enum):
     SETUP = 1 
@@ -399,6 +399,17 @@ class LoupGarouGame(arcade.Window):
 
         self.witch_choosing_target = False
 
+    def sync_from_host(self, data):
+        """Met à jour les données locales du client avec celles de l'hôte."""
+        if "log" in data:
+            self.log_messages.append(data["log"])
+    
+        if "dead_players" in data:
+            for name in data["dead_players"]:
+                p = self.game_manager.get_player_by_name(name)
+                if p:
+                    p.is_alive = False
+                    
     def handle_network_packet(self, packet):
         """Méthode de réception au niveau de la classe principale LoupGarouGame."""
         if packet["type"] == "CHAT":
@@ -1380,6 +1391,15 @@ class LoupGarouGame(arcade.Window):
 
     def on_update(self, delta_time):
         """Logique : mis à jour à chaque image."""
+
+        if self.network and self.network.is_host:
+            # Si l'état a changé depuis la dernière mise à jour
+            if hasattr(self, '_last_sent_state') and self._last_sent_state != self.current_state:
+                self.network.send({
+                "type": "CHANGE_STATE",
+                "state": self.current_state.value
+                })
+                self._last_sent_state = self.current_state
     
         if self.current_state != GameState.SETUP:
             self._update_cupid_visuals()
