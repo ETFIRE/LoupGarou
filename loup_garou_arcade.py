@@ -400,20 +400,20 @@ class LoupGarouGame(arcade.Window):
         self.witch_choosing_target = False
 
     def handle_network_packet(self, packet):
-        """Traite les données reçues du réseau."""
+        """Méthode de réception au niveau de la classe principale LoupGarouGame."""
         if packet["type"] == "CHAT":
             msg = f"🗣️ {packet['sender']} : {packet['text']}"
-            # On ajoute le message au log du jeu
-            arcade.schedule(lambda dt: self.game.handle_network_packet(packet), 0)
-        
-            if self.is_host:
-                self.send(packet)
+            self.log_messages.append(msg)
+            
+            # Correction de l'erreur : on vérifie is_host via l'objet network
+            if self.network and self.network.is_host:
+                self.network.send(packet)
 
-        # CE BLOC DOIT ÊTRE ALIGNÉ ICI (Pas à l'intérieur du bloc CHAT)
         elif packet["type"] == "START_GAME":
-            print("Signal de lancement reçu par le client !")
-            # On demande au jeu de lancer la phase de démarrage
-            arcade.schedule(lambda dt: self.game._finalize_setup_and_start(), 0)
+            # Le signal de lancement est déjà traité par le NetworkHandler, 
+            # mais on peut forcer la sécurité ici
+            if self.current_state == GameState.SETUP:
+                self._finalize_setup_and_start()
     
     def _network_receive_loop(self):
         """Boucle tournant dans un thread séparé pour recevoir les paquets."""
