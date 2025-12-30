@@ -107,11 +107,10 @@ class NetworkHandler:
         """Traite les données reçues du réseau."""
         if packet["type"] == "CHAT":
             msg = f"🗣️ {packet['sender']} : {packet['text']}"
-            arcade.schedule(lambda dt: self.game.log_messages.append(msg), 0)
-            
-            # Si nous sommes l'hôte, on relaie aux autres (si besoin)
-            if self.is_host:
-                self.send(packet)
+            self.log_messages.append(msg)
+        
+            if self.network.is_host:
+                self.network.send(packet)
 
         # CETTE CONDITION DOIT ÊTRE ALIGNÉE AVEC LE PREMIER 'IF'
         elif packet["type"] == "START_GAME":
@@ -998,8 +997,9 @@ class LoupGarouGame(arcade.Window):
 
         # Si on est l'hôte, on prévient le client avant de démarrer localement
         if self.network and self.network.is_host and self.network.running:
+            print("Envoi du signal de lancement au réseau...")
             self.network.send({"type": "START_GAME"})
-            
+
         diff_choisie = self.difficulty_levels[self.menu_diff_index]
         self.game_manager = GameManager(
             human_player_name=self.menu_human_name,
